@@ -130,7 +130,7 @@ class PrepareTests(unittest.TestCase):
         self.assertFalse(out["model"])
         self.assertIn("无法加载", out["error"])
         self.assertEqual(len(self.installs), 1)
-        self.assertEqual(json.loads(prepare.progress_file(self.home).read_text())["stage"], "failed")
+        self.assertEqual(json.loads(prepare.progress_file(self.home).read_text(encoding="utf-8"))["stage"], "failed")
 
     def test_macos_library_validation_switches_install_and_inference_to_the_same_isolated_python(self):
         good, _ = self.servers
@@ -165,7 +165,7 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(checked, [python, python])
         self.assertEqual(installed, [(isolated, prepare.MAC_PACKAGES, python)])
         self.assertEqual(inferred, [(isolated, prepare.model_dir(self.home), python)])
-        progress = json.loads(prepare.progress_file(self.home).read_text())
+        progress = json.loads(prepare.progress_file(self.home).read_text(encoding="utf-8"))
         self.assertEqual((progress["stage"], progress["backend"], progress["site"]),
                          ("done", "mac-standalone", str(isolated)))
 
@@ -214,7 +214,7 @@ class PrepareTests(unittest.TestCase):
         self.installs.clear()
 
         def failed_inference(site, model):
-            progress = json.loads(prepare.progress_file(self.home).read_text())
+            progress = json.loads(prepare.progress_file(self.home).read_text(encoding="utf-8"))
             self.assertEqual(progress["stage"], "verify")
             self.assertEqual(model, prepare.model_dir(self.home))
             return False
@@ -224,7 +224,7 @@ class PrepareTests(unittest.TestCase):
         self.assertFalse(out["model"])
         self.assertIn("推理检查", out["error"])
         self.assertEqual(self.installs, [])
-        self.assertEqual(json.loads(prepare.progress_file(self.home).read_text())["stage"], "failed")
+        self.assertEqual(json.loads(prepare.progress_file(self.home).read_text(encoding="utf-8"))["stage"], "failed")
 
     def test_the_shipped_manifest_pins_the_quantized_model(self):
         files = prepare.MODEL_MANIFEST["files"]

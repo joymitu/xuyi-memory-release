@@ -1449,9 +1449,14 @@ test('writer version comes from the request, so a Python-side bump never loops b
 
 test('diary clock asks Python soon after start and then every few minutes, and stops on dispose', async () => {
   const { startDiaryClock } = await import('./index.js');
+  // 等到条件成立为止，而不是睡固定时长：机器忙时定时器会晚到，固定 120ms 偶尔不够。
+  const until = async (ok, ms = 3000) => {
+    const end = Date.now() + ms;
+    while (!ok() && Date.now() < end) await new Promise(done => setTimeout(done, 5));
+  };
   let runs = 0;
   const stop = startDiaryClock(async () => { runs++; }, { firstDelay: 10, interval: 20 });
-  await new Promise(done => setTimeout(done, 120));
+  await until(() => runs >= 3);
   stop();
   const seen = runs;
   assert.ok(seen >= 3, `ran ${seen} times`);
@@ -1460,7 +1465,7 @@ test('diary clock asks Python soon after start and then every few minutes, and s
   // 出错不影响后续（Python 起不来、档案被占用都只是这一轮不写）。
   let tries = 0;
   const stop2 = startDiaryClock(async () => { tries++; throw new Error('boom'); }, { firstDelay: 5, interval: 10 });
-  await new Promise(done => setTimeout(done, 40));
+  await until(() => tries >= 2);
   stop2();
   assert.ok(tries >= 2);
 });
