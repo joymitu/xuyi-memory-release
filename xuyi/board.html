@@ -660,6 +660,13 @@ function scanDone() {
   return phase ? phase === 'bound' : scanAcknowledged;
 }
 
+function qrImageSource(svg) {
+  if (typeof svg !== 'string') return '';
+  // QQ 插件的新版本已返回图片地址，旧格式的 SVG 文本才需要编码。
+  if (/^data:image\/svg\+xml;base64,[A-Za-z0-9+/]+={0,2}$/.test(svg)) return svg;
+  return /^\s*<svg[\s>]/.test(svg) ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) : '';
+}
+
 function stepDone(step) {
   const s = setupState, health = s.health ?? {};
   if (step === 'qq') return Boolean(s.qq?.installed);
@@ -748,8 +755,9 @@ function renderWizard(force = false) {
     };
   } else if (step === 'scan') {
     const phase = bindState?.phase;
-    const qr = phase === 'waiting' && bindState.qrSvg
-      ? `<div class="wiz-qr"><img alt="QQ 机器人绑定二维码" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(bindState.qrSvg)}">`
+    const qrSrc = phase === 'waiting' ? qrImageSource(bindState.qrSvg) : '';
+    const qr = qrSrc
+      ? '<div class="wiz-qr"><img alt="QQ 机器人绑定二维码">'
         + '<div><p>用<b>手机 QQ</b> 扫一下，照提示建好机器人。</p><span class="wiz-wait">扫完会自己跳到下一步</span></div></div>'
       : phase === 'starting' || phase === 'saving' ? '<p><span class="wiz-wait">二维码马上就好……</span></p>'
       : phase === 'failed' ? `<p class="say bad">二维码没出来（${esc(bindState.reason || '原因不明')}），去 QQ 机器人页面再试一次。</p>`
@@ -758,6 +766,14 @@ function renderWizard(force = false) {
       + '<div class="wiz-foot"><button class="btn ghost" data-open>打开 QQ 机器人页面</button>'
       + (!phase ? '<button class="btn ghost" data-ack>扫好了</button>' : '') + navButtons + '</div>'
       + '<div class="say" id="sayScan"></div>';
+    if (qrSrc) {
+      const image = box.querySelector('.wiz-qr img');
+      image.onerror = () => {
+        image.hidden = true;
+        say('sayScan', '二维码显示失败，请打开 QQ 机器人页面扫码。', true);
+      };
+      image.src = qrSrc;
+    }
     box.querySelector('[data-open]').onclick = () => {
       if (window.parent === window) { say('sayScan', '在 DSH 左侧找到「QQ 机器人」，用手机 QQ 扫码。'); return; }
       window.parent.postMessage({ type: 'xuyi-open-qq' }, '*');

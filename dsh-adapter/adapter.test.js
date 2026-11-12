@@ -1080,7 +1080,8 @@ test('right after install: if setup is not finished, DSH switches to the 续忆 
 test('the guide renders a new QQ QR code even when prior chats and a persona are saved', () => {
   const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
   const script = page.slice(page.indexOf('const WIZ_STEPS'), page.indexOf('function openWizard'));
-  const box = { querySelector: () => ({}), querySelectorAll: () => [] };
+  const image = {};
+  const box = { querySelector: selector => selector === '.wiz-qr img' ? image : {}, querySelectorAll: () => [] };
   const document = { getElementById: id => id === 'wizStep' ? box : {} };
   const read = new Function('setupState', 'bindState', 'document', 'sessionStorage', 'renderPrepare',
     script + `return {
@@ -1098,9 +1099,14 @@ test('the guide renders a new QQ QR code even when prior chats and a persona are
     assert.equal(state.scanned, false);
     assert.equal(state.confirmLegacyScan(), false);
   }
-  load({ phase: 'waiting', qrSvg: '<svg />' }).render();
-  assert.match(box.innerHTML, /data:image\/svg\+xml/);
+  const qrSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>';
+  const officialQr = 'data:image/svg+xml;base64,' + Buffer.from(qrSvg).toString('base64');
+  load({ phase: 'waiting', qrSvg: officialQr }).render();
+  assert.equal(image.src, officialQr);
+  assert.equal(Buffer.from(image.src.split(',')[1], 'base64').toString('utf8'), qrSvg);
   assert.doesNotMatch(box.innerHTML, /data-ack/);
+  load({ phase: 'waiting', qrSvg }).render();
+  assert.equal(decodeURIComponent(image.src.split(',')[1]), qrSvg);
   assert.equal(load(null).next, 'scan');
   assert.equal(load(null).confirmLegacyScan(), true);
   assert.equal(load({ phase: 'bound' }).next, 'done');
