@@ -1119,11 +1119,10 @@ test('the guide celebrates only after recall works and opens the memory tab from
   const box = { querySelector: selector => selector === '[data-finish]' ? finish : {}, querySelectorAll: () => [] };
   const document = { getElementById: id => ({ wizIntro: intro, wizProgress: progress, wizStep: box })[id] };
   const events = [];
-  const render = new Function('setupState', 'bindState', 'document', 'hourText', 'closeWizard', 'showTab',
+  const render = new Function('setupState', 'bindState', 'document', 'closeWizard', 'showTab',
     script + 'return () => renderWizard();');
-  const state = { qq: { installed: true }, persona: { configured: true }, health: { recording: true, recall: false },
-    diary_hour: 20 };
-  const redraw = render(state, { phase: 'bound' }, document, hour => hour === 20 ? '晚上八点' : '其他时间',
+  const state = { qq: { installed: true }, persona: { configured: true }, health: { recording: true, recall: false } };
+  const redraw = render(state, { phase: 'bound' }, document,
     () => events.push('closed'), tab => events.push(tab));
   redraw();
   assert.equal(intro.hidden, false);
@@ -1132,7 +1131,8 @@ test('the guide celebrates only after recall works and opens the memory tab from
   redraw();
   assert.equal(intro.hidden, true);
   assert.equal((progress.innerHTML.match(/class="done"/g) ?? []).length, 4);
-  assert.match(box.innerHTML, /恭喜.*晚上八点.*data-finish>看看 TA 的记忆/);
+  assert.match(box.innerHTML, /信息予你无限，续忆重塑未来/);
+  assert.match(box.innerHTML, /恭喜.*续忆能帮 DeepSeek 想起来.*data-finish>看看 TA 的记忆/);
   finish.onclick();
   assert.deepEqual(events, ['closed', 'memory']);
 });

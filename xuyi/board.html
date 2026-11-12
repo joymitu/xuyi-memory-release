@@ -874,10 +874,8 @@ function renderWizard(force = false) {
       + '<p>续忆已经收到你的消息，正在建索引，几秒钟就好。一直停在这里的话，把 DSH 完全退出再打开。</p>'
       + '<span class="wiz-wait">整理中……</span>' + later;
   } else {
-    const hour = Number.isInteger(s.diary_hour) ? s.diary_hour : 22;
-    box.innerHTML = '<div class="done-mark" aria-hidden="true">✓</div><h3>恭喜，续忆可以用了！</h3>'
-      + '<p>QQ 已经连上，续忆也记下了你发来的消息。接下来，照常在 QQ 上跟 TA 聊就好。</p>'
-      + `<p>有私聊的日子，续忆会在${hourText(hour)}整理当天的日记。</p>`
+    box.innerHTML = '<div class="done-mark" aria-hidden="true">✓</div><h3>信息予你无限，续忆重塑未来</h3>'
+      + '<p>恭喜，续忆已经记下了你在 QQ 发来的消息。下次聊起你提过的事，续忆能帮 DeepSeek 想起来，接着跟你聊。</p>'
       + '<button class="btn" data-finish>看看 TA 的记忆</button>' + (manual ? later : '');
     box.querySelector('[data-finish]').onclick = () => { closeWizard(); showTab('memory'); };
   }
