@@ -211,7 +211,9 @@ details.raw[open] summary::before { content: "▾ "; }
 .say.bad { color: #b0413e; }
 .hour { font: 14px var(--sans); color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; margin-right: 8px; }
 .prep { font-size: 13px; color: var(--ink-2); background: var(--page); border-radius: 10px; padding: 8px 12px; margin: -6px 0 14px; }
-.prep.bad { color: #b0413e; }
+.prep p { margin: 0; }
+.prep details { margin-top: 6px; }
+.prep summary { cursor: pointer; }
 
 /* ---- 续忆：页头、页签 ---- */
 .brand { display: flex; align-items: baseline; gap: 10px; }
@@ -325,7 +327,13 @@ details.raw[open] summary::before { content: "▾ "; }
 <main class="settings" id="settingsView" hidden>
   <div class="setup-card">
     <h2>设置</h2>
-    <p class="prep" id="prepLine" hidden></p>
+    <div class="prep" id="prepStatus" hidden>
+      <p id="prepLine"></p>
+      <details id="prepDetails" hidden>
+        <summary>技术详情</summary>
+        <p id="prepReason"></p>
+      </details>
+    </div>
     <section class="step" id="stepPersona"></section>
     <section class="step" id="stepDiary"></section>
     <section class="step" id="stepAgain"></section>
@@ -336,7 +344,6 @@ details.raw[open] summary::before { content: "▾ "; }
     <button class="x" id="setupClose" title="稍后再说">×</button>
     <h2>欢迎用续忆</h2>
     <p class="sub">弄好这几步，就能在 QQ 上找TA聊天了。</p>
-    <p class="prep" id="wizPrepLine" hidden></p>
     <div class="wiz-progress" id="wizProgress"></div>
     <section class="wiz-step" id="wizStep"></section>
   </div>
@@ -557,17 +564,22 @@ function say(id, text, bad = false) {
   if (box) { box.textContent = text; box.classList.toggle('bad', bad); }
 }
 
-function renderPrepare(p, id = 'prepLine') {
-  const line = document.getElementById(id);
-  // 开发机（项目里自带模型）不显示；装进 DSH 的包第一次会在后台准备约 40MB。
-  if (!line || !p || p.bundled) { if (line) line.hidden = true; return; }
-  line.hidden = false;
-  line.classList.toggle('bad', p.stage === 'failed');
-  line.textContent = p.ready ? '中文理解模型：已就绪。'
-    : p.stage === 'failed' ? `当前使用词法检索。中文模型不可用（${p.error || '原因不明'}）。`
+function renderPrepare(p) {
+  const status = document.getElementById('prepStatus');
+  status.hidden = !p || Boolean(p.bundled);
+  if (status.hidden) return;
+
+  const line = document.getElementById('prepLine');
+  const details = document.getElementById('prepDetails');
+  const reason = document.getElementById('prepReason');
+  details.hidden = p.stage !== 'failed' || !p.error;
+  if (details.hidden) details.open = false;
+  reason.textContent = details.hidden ? '' : p.error;
+  line.textContent = p.ready ? '续忆可以按意思查找以前的聊天。'
+    : p.stage === 'failed' ? '续忆目前按关键词查找以前的聊天。QQ 聊天和记录照常使用。'
     : p.stage === 'disabled' ? '已关闭中文模型的自动准备。'
-    : p.stage === 'verify' ? '正在验证中文模型，暂时使用词法检索。'
-    : `正在准备中文模型：${p.percent || 0}%。暂时使用词法检索。`;
+    : p.stage === 'verify' ? '正在检查中文模型，暂时按关键词查找以前的聊天。'
+    : `正在准备中文模型（${p.percent || 0}%），暂时按关键词查找以前的聊天。`;
 }
 
 // 选TA的样子（人设 + 群里怎么回）：设置页和引导共用。
@@ -699,7 +711,6 @@ function dismissWizard() {
 let helloSince = null;
 
 function renderWizard(force = false) {
-  renderPrepare(setupState.prepare, 'wizPrepLine');
   const step = wizardStep();
   // 轮询时只有状态真的变了才重画：不然刚点完的按钮、刚出来的提示、正在填的字都会被刷掉。
   // 等第一句话等太久（QQ 那边聊上了、续忆却没收到）要换成「卡住了」那一屏。
