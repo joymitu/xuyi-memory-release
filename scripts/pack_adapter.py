@@ -67,12 +67,13 @@ def stage(out=None):
     folder, license_text, version = _yaml_source()
     # 只要纯 Python 部分；yaml/__init__ 找不到 C 扩展时自动用纯 Python 实现。
     _copy_tree(folder, py / "yaml", keep=lambda path: path.suffix == ".py")
-    (py / "yaml/LICENSE").write_text(license_text, encoding="utf-8")
-    (py / "yaml/VERSION").write_text(f"PyYAML {version}（纯 Python 部分，MIT）\n", encoding="utf-8")
+    # newline="\n"：Windows 上打包也写 LF，与 Mac 打出的包逐字节一致。
+    (py / "yaml/LICENSE").write_text(license_text, encoding="utf-8", newline="\n")
+    (py / "yaml/VERSION").write_text(f"PyYAML {version}（纯 Python 部分，MIT）\n", encoding="utf-8", newline="\n")
     manifest_path = out / "package.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["files"] = sorted(set(manifest.get("files", [])) | {"py"})
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return out
 
 

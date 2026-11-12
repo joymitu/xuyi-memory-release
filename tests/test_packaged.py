@@ -110,6 +110,14 @@ class PackStageTests(unittest.TestCase):
             self.assertTrue(Path(lines[0]).resolve().is_relative_to(py.resolve()), lines[0])
             self.assertIn("小雅", lines[1])
 
+    def test_generated_text_files_use_lf_on_every_platform(self):
+        # Windows 上 write_text 默认写 CRLF，打出的包会和 Mac 验过的包不一致。
+        from pack_adapter import stage
+        with tempfile.TemporaryDirectory() as tmp:
+            out = stage(Path(tmp) / "stage")
+            for rel in ["package.json", "py/yaml/LICENSE", "py/yaml/VERSION"]:
+                self.assertNotIn(b"\r", (out / rel).read_bytes(), rel)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -141,6 +149,23 @@ class ReleaseContentTests(unittest.TestCase):
                 if path.is_file() and path.suffix in {".py", ".js", ".json", ".md", ".html", ".yml", ".txt"}:
                     text = path.read_text(encoding="utf-8", errors="replace")
                     self.assertIsNone(personal.search(text), f"{path.relative_to(out)}: {personal.search(text)}")
+
+
+class ManifestLinkTests(unittest.TestCase):
+    RELEASE = "https://github.com/joymitu/xuyi-memory-release"
+
+    def test_npm_links_point_at_the_clean_release_repository(self):
+        # 研究仓库不公开；npm 页面上的链接只能指向干净发布仓库。
+        manifest = json.loads((ROOT / "dsh-adapter/package.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["repository"], {"type": "git", "url": f"git+{self.RELEASE}.git"})
+        self.assertEqual(manifest["homepage"], f"{self.RELEASE}#readme")
+        self.assertEqual(manifest["bugs"], {"url": f"{self.RELEASE}/issues"})
+
+    def test_market_index_repository_follows_the_manifest(self):
+        from make_market_index import build
+        plugin = build(1794240000)["plugins"][0]
+        self.assertEqual(plugin["repository"], {"url": self.RELEASE})
+        self.assertEqual(plugin["homepage"], f"{self.RELEASE}#readme")
 
 
 class MarketIndexTests(unittest.TestCase):

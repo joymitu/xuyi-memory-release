@@ -38,11 +38,11 @@
   "author": "xuyi-memory contributors",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/joymitu/xuyi-memory.git"
+    "url": "git+https://github.com/joymitu/xuyi-memory-release.git"
   },
-  "homepage": "https://github.com/joymitu/xuyi-memory#readme",
+  "homepage": "https://github.com/joymitu/xuyi-memory-release#readme",
   "bugs": {
-    "url": "https://github.com/joymitu/xuyi-memory/issues"
+    "url": "https://github.com/joymitu/xuyi-memory-release/issues"
   },
   "engines": {
     "node": ">=20"
