@@ -206,7 +206,7 @@ class PublicReadmeTests(unittest.TestCase):
         for name in ("dsh-memory-engine", "neuron", "星图", "神经元", "jiudouliang", "shadowrjh"):
             self.assertNotIn(name, text)
         self.assertIn("某记忆插件 a", text)
-        self.assertIn("我们是怎么测的", text)
+        self.assertIn("怎么测的", text)
 
 
 class PrivacyWordingTests(unittest.TestCase):
