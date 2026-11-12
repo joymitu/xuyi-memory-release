@@ -201,19 +201,20 @@ export function venvPython(projectDir, platform = process.platform) {
 }
 
 // DSH 安装时自带一份 Python（runtime.json 里的 "python"），放在用户主目录的 .dsh 下。
-// Windows 布局已在 0.2.2-rc.1 真机核对；macOS 的 bin/python3 是按惯例推断，未在真机核对。
+// Windows 使用 python.exe，macOS 使用 bin/python3。
 export function dshPython(home = homedir(), platform = process.platform) {
   const base = join(home, '.dsh', 'dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'python');
   return platform === 'win32' ? join(base, 'python.exe') : join(base, 'bin', 'python3');
 }
 
 const packageDir = dirname(fileURLToPath(import.meta.url));
+const macRuntimeRelease = '20261110'; // 对应 xuyi/prepare.py 固定校验的独立 Python。
 
 // 怎么跑 Python 核心：
 // - 开发模式：找到带虚拟环境的项目（配置/环境变量/登记文件/旧默认路径）——照旧，数据在项目 data/。
 // - 包模式：从 npm 装进 DSH 时没有项目，用包里的 py/ + DSH 自带的 Python，数据在 ~/.xuyi/data。
 export function resolveRuntime(config = {}, { env = process.env, home = homedir(), exists = existsSync,
-  platform = process.platform, packageDir: pkg = packageDir } = {}) {
+  platform = process.platform, arch = process.arch, packageDir: pkg = packageDir } = {}) {
   let registered;
   try { registered = JSON.parse(readFileSync(join(home, '.xuyi', 'project.json'), 'utf8')).projectDir; } catch {}
   const candidates = [config.projectDir, env.XUYI_PROJECT_DIR, registered,
@@ -226,7 +227,14 @@ export function resolveRuntime(config = {}, { env = process.env, home = homedir(
     const dataDir = resolve(config.dataDir ?? join(home, '.xuyi', 'data'));
     // 语义依赖由 `xuyi prepare` 装进 ~/.xuyi/py-site，量化模型下到 ~/.xuyi/models（见 xuyi/prepare.py）。
     const siteDir = join(home, '.xuyi', 'py-site');
+    const macArch = { arm64: 'arm64', x64: 'x86_64' }[arch];
+    const macRoot = platform === 'darwin' && macArch
+      ? join(home, '.xuyi', 'semantic-runtime', `${macRuntimeRelease}-${macArch}`) : null;
     return { mode: 'packaged', python, dataDir, cwd: dataDir, siteDir, home,
+      macSemantic: macRoot && {
+        python: join(macRoot, 'python', 'bin', 'python3.12'),
+        pythonPath: [codeDir, join(macRoot, 'site')].join(':'),
+      },
       modelDir: join(home, '.xuyi', 'models', 'bge-small-zh-q8'),
       env: { ...env, PYTHONPATH: [codeDir, siteDir].join(platform === 'win32' ? ';' : ':'),
         PYTHONUTF8: '1', PYTHONNOUSERSITE: '1' } };
@@ -701,13 +709,36 @@ export function prepareStateOf(runtime) {
   if (progress?.run_id === run.id) {
     const { stage, percent, error } = progress;
     if (!run.finished || stage === 'done' || stage === 'failed') {
-      return { stage, percent, error, ready: stage === 'done' };
+      return { stage, percent, error, ready: stage === 'done',
+        ...(stage === 'done' && progress.backend === 'mac-standalone' ? { backend: progress.backend } : {}) };
     }
   }
   return run.finished
     ? { stage: 'failed', percent: 0, ready: false,
       error: runtime.python ? '本地准备程序未完成检查' : '找不到可用的 Python' }
     : { stage: 'waiting', percent: 0, ready: false };
+}
+
+async function toolRecall(runtime, dbPath, scope, budget, query, signal) {
+  const progress = prepareStateOf(runtime);
+  const verified = !runtime.prepareRun || progress.ready;
+  const model = verified && existsSync(join(runtime.modelDir, 'model.onnx')) ? ['--model', runtime.modelDir] : [];
+  const args = ['recall', scope, '--budget', String(budget), '--focus'];
+  if (model.length && progress.backend === 'mac-standalone') {
+    const alternate = runtime.macSemantic;
+    if (alternate && existsSync(alternate.python)) {
+      const env = { ...runtime.env, PYTHONPATH: alternate.pythonPath };
+      delete env.PYTHONHOME;
+      try {
+        return await run(alternate.python, env, runtime.cwd, dbPath, [...args, ...model, '--', query], undefined, signal);
+      } catch (error) {
+        if (error.name === 'AbortError' || signal?.aborted) throw error;
+        recordFailure(runtime.dataDir, 'recall(mac-standalone)', { code: error.code }, '');
+      }
+    }
+    return callCore(runtime, dbPath, [...args, '--', query], undefined, signal);
+  }
+  return callCore(runtime, dbPath, [...args, ...model, '--', query], undefined, signal);
 }
 
 // ---- 首次引导：选人设、装/打开 QQ 插件、开聊（日记本里的「设置」面板调用） ----
@@ -1050,10 +1081,7 @@ export function create(ctx, config = {}, host) {
     try {
       await state.pending;
       if (state.turns.get(sessionId) !== turn || scopeOf(sessionId) !== scope || signal.aborted) return '会话已切换或查询已取消。';
-      const verified = !runtime.prepareRun || prepareStateOf(runtime).ready;
-      const model = verified && existsSync(join(runtime.modelDir, 'model.onnx')) ? ['--model', runtime.modelDir] : [];
-      const result = await callCore(runtime, dbPath, ['recall', scope, '--budget',
-        String(toolBudget), '--focus', ...model, '--', query], undefined, signal);
+      const result = await toolRecall(runtime, dbPath, scope, toolBudget, query, signal);
       if (state.turns.get(sessionId) !== turn || scopeOf(sessionId) !== scope || signal.aborted) return '会话已切换或查询已取消。';
       return checkedContext(result, toolBudget) || '这次查询没有找到可用原文。';
     } catch {

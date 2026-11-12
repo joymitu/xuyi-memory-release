@@ -3,7 +3,9 @@
 不联网：模型源用本机 HTTP 服务假装，pip 用注入的安装函数。
 """
 import hashlib
+import io
 import json
+import tarfile
 import tempfile
 import threading
 import unittest
@@ -104,7 +106,7 @@ class PrepareTests(unittest.TestCase):
         out = self.run_prepare([good + "/m/{path}"], pip=flaky)
         self.assertTrue(out["deps"])
         self.assertEqual(calls, ["https://mirror-a/simple", "https://mirror-b/simple"])
-        self.assertIn("onnxruntime==1.31.1", self.installs[0][1])
+        self.assertTrue(any(package.startswith("onnxruntime==") for package in self.installs[0][1]))
         # 已经装好就不再装。
         self.installs.clear()
         self.run_prepare([good + "/m/{path}"], deps_ready=True)
@@ -130,16 +132,81 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(len(self.installs), 1)
         self.assertEqual(json.loads(prepare.progress_file(self.home).read_text())["stage"], "failed")
 
-    def test_macos_library_validation_failure_does_not_reinstall_the_same_wheel(self):
+    def test_macos_library_validation_switches_install_and_inference_to_the_same_isolated_python(self):
+        good, _ = self.servers
         site = prepare.site_dir(self.home)
         site.mkdir(parents=True)
-        with patch.object(prepare.sys, "platform", "darwin"), patch.object(prepare.subprocess, "run") as run:
+        isolated = self.home / "isolated"
+        python = isolated / "bin" / "python3.12"
+        checked, installed, inferred = [], [], []
+
+        def check(path, *, python=None):
+            if python is None:
+                return prepare.deps_ready(path)
+            checked.append(python)
+            return (path / "installed").exists()
+
+        def install(path, packages, index, *, python=None):
+            installed.append((path, packages, python))
+            path.mkdir(parents=True)
+            (path / "installed").touch()
+
+        def inference(path, model, *, python=None):
+            inferred.append((path, model, python))
+            return True
+
+        with patch.object(prepare.sys, "platform", "darwin"), patch.object(prepare.subprocess, "run") as run, \
+                patch.object(prepare, "mac_semantic_runtime", return_value=(python, isolated)) as runtime:
             run.return_value.returncode = 1
             run.return_value.stderr = b"mapping process and mapped file have different Team IDs"
-            out = self.run_prepare([], deps_check=prepare.deps_ready)
-        self.assertIn("macOS 拒绝", out["error"])
-        self.assertFalse(out["deps"])
-        self.assertEqual(self.installs, [])
+            out = self.run_prepare([good + "/m/{path}"], deps_check=check, pip=install, inference_check=inference)
+        runtime.assert_called_once_with(self.home, install=True)
+        self.assertTrue(out["model"])
+        self.assertEqual(checked, [python, python])
+        self.assertEqual(installed, [(isolated, prepare.MAC_PACKAGES, python)])
+        self.assertEqual(inferred, [(isolated, prepare.model_dir(self.home), python)])
+        progress = json.loads(prepare.progress_file(self.home).read_text())
+        self.assertEqual((progress["stage"], progress["backend"], progress["site"]),
+                         ("done", "mac-standalone", str(isolated)))
+
+    def test_standalone_archive_is_verified_before_extraction_and_reused(self):
+        good, bad = self.servers
+        filename = "cpython-3.12.16+20261110-aarch64-apple-darwin-install_only_stripped.tar.gz"
+        archive = self.good / prepare.MAC_RUNTIME_RELEASE / filename
+        archive.parent.mkdir()
+        with tarfile.open(archive, "w:gz") as dist:
+            entry = tarfile.TarInfo("python/bin/python3.12")
+            content = b"synthetic test runtime"
+            entry.mode = 0o755
+            entry.size = len(content)
+            dist.addfile(entry, io.BytesIO(content))
+        corrupted = self.bad / prepare.MAC_RUNTIME_RELEASE / filename
+        corrupted.parent.mkdir()
+        corrupted.write_bytes(b"unverified")
+        meta = ("aarch64", archive.stat().st_size, hashlib.sha256(archive.read_bytes()).hexdigest())
+        with patch.object(prepare.sys, "platform", "darwin"), patch.object(prepare.platform, "machine", return_value="arm64"), \
+                patch.dict(prepare.MAC_RUNTIME_ASSETS, {"arm64": meta}), \
+                patch.object(prepare, "MAC_RUNTIME_SOURCES", (bad,)):
+            with self.assertRaisesRegex(RuntimeError, "下载失败"):
+                prepare.mac_semantic_runtime(self.home, install=True)
+            with patch.object(prepare, "MAC_RUNTIME_SOURCES", (bad, good)):
+                python, site = prepare.mac_semantic_runtime(self.home, install=True)
+            self.assertEqual(python.read_bytes(), content)
+            self.assertEqual(site.parent, python.parents[2])
+            self.assertEqual(prepare.mac_semantic_runtime(self.home), (python, site))
+
+    def test_fresh_hardened_python_skips_wheel_install_for_the_host(self):
+        from subprocess import CompletedProcess
+
+        def signed(entitlements=b""):
+            return CompletedProcess([], 0, entitlements, b"CodeDirectory flags=0x10000(runtime) hashes=2")
+
+        with patch.object(prepare.sys, "platform", "darwin"), patch.object(prepare.subprocess, "run") as run:
+            run.return_value = signed()
+            with self.assertRaises(prepare.MacLibraryValidationError):
+                prepare._host_deps_ready(prepare.site_dir(self.home), lambda _: False)
+            run.return_value = signed(b"<key>com.apple.security.cs.disable-library-validation</key><true/>")
+            self.assertFalse(prepare._host_deps_ready(prepare.site_dir(self.home), lambda _: False))
 
     def test_cached_files_must_pass_inference_on_every_run(self):
         good, _ = self.servers

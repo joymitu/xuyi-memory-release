@@ -1315,7 +1315,21 @@ test('packaged runtime puts the prepared site on PYTHONPATH and points at the qu
   assert.equal(posix(parts[1]), posix(join(home, '.xuyi', 'py-site')));
   assert.equal(posix(rt.modelDir), posix(join(home, '.xuyi', 'models', 'bge-small-zh-q8')));
   assert.equal(posix(rt.siteDir), posix(join(home, '.xuyi', 'py-site')));
+  assert.equal(rt.macSemantic, null);
   assert.equal(rt.home, home);
+});
+
+test('packaged macOS selects an isolated semantic runtime for the host architecture', () => {
+  const home = '/h', pkg = '/pkg';
+  for (const [arch, pythonArch] of [['arm64', 'arm64'], ['x64', 'x86_64']]) {
+    const options = { env: {}, home, platform: 'darwin', arch, packageDir: pkg,
+      exists: path => [join(pkg, 'py', 'xuyi', '__init__.py'), dshPython(home, 'darwin')].includes(path) };
+    const rt = resolveRuntime({}, options);
+    const root = join(home, '.xuyi', 'semantic-runtime', `20261110-${pythonArch}`);
+    assert.equal(rt.python, dshPython(home, 'darwin'));
+    assert.deepEqual(rt.macSemantic, { python: join(root, 'python', 'bin', 'python3.12'),
+      pythonPath: [join(pkg, 'py'), join(root, 'site')].join(':') });
+  }
 });
 
 test('packaged startup verifies existing assets and ignores stale progress', async t => {
@@ -1333,7 +1347,7 @@ test('packaged startup verifies existing assets and ignores stale progress', asy
   for (const dir of [dataDir, modelDir, join(siteDir, 'onnxruntime')]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(modelDir, 'source.json'), '{}');
   const progressPath = join(dataDir, 'prepare.json');
-  writeFileSync(progressPath, JSON.stringify({ stage: 'done', percent: 100 }));
+  writeFileSync(progressPath, JSON.stringify({ stage: 'done', percent: 100, backend: 'mac-standalone' }));
   const packaged = { ...runtime };
   assert.equal(maybePrepare(packaged, { launch }), true);
   assert.deepEqual(launched[0].args, ['-m', 'xuyi', 'prepare', '--home', cwd,
@@ -1341,10 +1355,13 @@ test('packaged startup verifies existing assets and ignores stale progress', asy
   assert.equal(launched[0].python, '/py');
   assert.deepEqual(prepareStateOf(packaged), { stage: 'waiting', percent: 0, ready: false });
   const writeProgress = progress => writeFileSync(progressPath, JSON.stringify({ ...progress, run_id: packaged.prepareRun.id }));
-  writeProgress({ stage: 'verify', percent: 95 });
+  writeProgress({ stage: 'verify', percent: 95, backend: 'mac-standalone' });
   assert.equal(prepareStateOf(packaged).ready, false);
-  writeProgress({ stage: 'done', percent: 100 });
-  assert.equal(prepareStateOf(packaged).ready, true);
+  assert.equal(prepareStateOf(packaged).backend, undefined);
+  writeProgress({ stage: 'done', percent: 100, backend: 'mac-standalone' });
+  assert.deepEqual(prepareStateOf(packaged), {
+    stage: 'done', percent: 100, error: undefined, ready: true, backend: 'mac-standalone',
+  });
   writeProgress({ stage: 'failed', percent: 0, error: 'macOS 拒绝当前 Python 加载语义检索依赖' });
   assert.equal(prepareStateOf(packaged).ready, false);
   assert.match(prepareStateOf(packaged).error, /macOS 拒绝/);
