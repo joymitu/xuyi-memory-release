@@ -412,7 +412,9 @@ class SetupPanelPageTests(unittest.TestCase):
         page = (ROOT / 'xuyi/board.html').read_text(encoding='utf-8')
         self.assertIn('renderPrepare(setupState.prepare)', page)
         self.assertIn('id="prepLine"', page)
-        self.assertIn('不影响聊天', page)
+        self.assertIn("renderPrepare(setupState.prepare, 'wizPrepLine')", page)
+        self.assertIn('id="wizPrepLine"', page)
+        self.assertIn('当前使用词法检索', page)
 
     def test_sticky_notes_stay_beside_the_page_inside_the_dsh_panel(self):
         # 日记本嵌在 DSH 左侧栏右边，宽度常在 900–1180：便利贴要留在左右两边，只有很窄才放到下面。

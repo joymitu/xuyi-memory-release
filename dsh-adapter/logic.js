@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -668,28 +668,46 @@ export const unavailablePage = '<!doctype html><meta charset="utf-8"><title>日�
 
 // ---- 首次运行准备：包模式下后台装语义依赖、下量化中文模型（约 42MB，xuyi/prepare.py） ----
 // 没准备好之前照样能用（自动召回本来就是词法，工具查询也退回词法）。每次 DSH 启动最多跑一次。
-export function maybePrepare(runtime, { exists = existsSync, launch = spawn, enabled = true } = {}) {
-  if (!enabled || runtime.mode !== 'packaged' || !runtime.python) return false;
-  if (exists(join(runtime.modelDir, 'source.json')) && exists(join(runtime.siteDir, 'onnxruntime'))) return false;
+export function maybePrepare(runtime, { launch = spawn, enabled = true } = {}) {
+  if (!enabled || runtime.mode !== 'packaged' || runtime.prepareRun) return false;
+  const run = runtime.prepareRun = { id: randomUUID(), finished: false };
+  const progressPath = join(runtime.dataDir, 'prepare.json');
+  if (!runtime.python) {
+    run.finished = true;
+    return false;
+  }
   try {
     mkdirSync(runtime.cwd, { recursive: true });
-    // 明确带上 home：不能让 Python 自己猜（测试或配置了 homeDir 时会落到真实用户目录）。
-    const child = launch(runtime.python, ['-m', 'xuyi', 'prepare', '--home', runtime.home],
+    // 已有依赖和模型时 Python 会跳过下载，仍会用本次启动的解释器重验。
+    const child = launch(runtime.python, ['-m', 'xuyi', 'prepare', '--home', runtime.home,
+      '--progress-file', progressPath, '--run-id', run.id],
       { cwd: runtime.cwd, env: runtime.env, stdio: 'ignore', windowsHide: true });
-    child?.on?.('error', () => {});
+    const finished = () => { run.finished = true; };
+    child?.on?.('error', finished);
+    child?.on?.('exit', finished);
     child?.unref?.();
     return true;
   } catch {
+    run.finished = true;
     return false;
   }
 }
 
-function prepareStateOf(runtime) {
+export function prepareStateOf(runtime) {
   if (runtime.mode !== 'packaged') return { stage: 'done', percent: 100, ready: true, bundled: true };
-  const ready = existsSync(join(runtime.modelDir, 'source.json')) && existsSync(join(runtime.siteDir, 'onnxruntime'));
-  const progress = readJson(join(runtime.dataDir, 'prepare.json')) ?? {};
-  return { stage: ready ? 'done' : progress.stage ?? 'waiting', percent: ready ? 100 : progress.percent ?? 0,
-    error: ready ? undefined : progress.error, ready };
+  const run = runtime.prepareRun;
+  if (!run) return { stage: 'disabled', percent: 0, ready: false };
+  const progress = readJson(join(runtime.dataDir, 'prepare.json'));
+  if (progress?.run_id === run.id) {
+    const { stage, percent, error } = progress;
+    if (!run.finished || stage === 'done' || stage === 'failed') {
+      return { stage, percent, error, ready: stage === 'done' };
+    }
+  }
+  return run.finished
+    ? { stage: 'failed', percent: 0, ready: false,
+      error: runtime.python ? '本地准备程序未完成检查' : '找不到可用的 Python' }
+    : { stage: 'waiting', percent: 0, ready: false };
 }
 
 // ---- 首次引导：选人设、装/打开 QQ 插件、开聊（日记本里的「设置」面板调用） ----
@@ -1032,8 +1050,8 @@ export function create(ctx, config = {}, host) {
     try {
       await state.pending;
       if (state.turns.get(sessionId) !== turn || scopeOf(sessionId) !== scope || signal.aborted) return '会话已切换或查询已取消。';
-      // 模型只在真的在本机时才用；缺了就词法（Python 侧也会兜底：缺依赖时同样退回词法）。
-      const model = existsSync(join(runtime.modelDir, 'model.onnx')) ? ['--model', runtime.modelDir] : [];
+      const verified = !runtime.prepareRun || prepareStateOf(runtime).ready;
+      const model = verified && existsSync(join(runtime.modelDir, 'model.onnx')) ? ['--model', runtime.modelDir] : [];
       const result = await callCore(runtime, dbPath, ['recall', scope, '--budget',
         String(toolBudget), '--focus', ...model, '--', query], undefined, signal);
       if (state.turns.get(sessionId) !== turn || scopeOf(sessionId) !== scope || signal.aborted) return '会话已切换或查询已取消。';

@@ -45,7 +45,7 @@
 
 3. 第一次启动时，续忆会在后台准备中文理解模型（约 40MB，只需一次，一般不到一分钟）。准备期间照样能聊，准备好以后她想事情更准。
 
-续忆默认使用 DeepSeek Harness 自带的 Python。部分 macOS 环境会阻止内置 Python 加载 ONNX Runtime，此时仍可按关键词检索。
+续忆默认使用 DeepSeek Harness 自带的 Python。每次启动会验证模型能否完成本地推理。部分 macOS 环境会阻止内置 Python 加载 ONNX Runtime，引导和设置页会提示当前使用词法检索。
 
 ## 常见问题
 

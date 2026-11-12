@@ -62,6 +62,8 @@ def main():
     prepare_command=commands.add_parser('prepare',help='首次运行准备：语义依赖 + 量化中文模型（装进 DSH 时由适配器在后台调用）')
     prepare_command.add_argument('--status',action='store_true',help='只看准备好了没有')
     prepare_command.add_argument('--home',help='用户目录（默认当前用户；测试用）')
+    prepare_command.add_argument('--progress-file',help='适配器读取准备进度的文件')
+    prepare_command.add_argument('--run-id',help='适配器本次启动的准备编号')
     commands.add_parser('diary-due',help='到点写日记：补前一天、过了钟点写今天（适配器每隔几分钟调用）')
     hour_command=commands.add_parser('diary-hour',help='看或设每天几点写日记（18–23，默认 22）')
     hour_command.add_argument('--set',type=int)
@@ -88,7 +90,8 @@ def main():
     if args.command=='prepare':
         # 不碰记忆档案（不打开 --db）：只装依赖、下模型。
         from . import prepare as preparing
-        result=preparing.status(args.home or Path.home()) if args.status else preparing.prepare(args.home)
+        result=preparing.status(args.home or Path.home()) if args.status else preparing.prepare(
+            args.home, progress_path=args.progress_file, run_id=args.run_id)
         print(json.dumps(result,ensure_ascii=False,indent=2))
         return 0 if args.status or (result.get('deps') and result.get('model')) else 1
     if args.command=='setup':

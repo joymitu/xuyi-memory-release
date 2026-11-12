@@ -7,6 +7,7 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -45,6 +46,7 @@ class PrepareTests(unittest.TestCase):
         self.servers = []
         for folder in (self.good, self.bad):
             server, url = serve(folder)
+            self.addCleanup(server.server_close)
             self.addCleanup(server.shutdown)
             self.servers.append(url)
         self.installs = []
@@ -54,10 +56,12 @@ class PrepareTests(unittest.TestCase):
         Path(site).mkdir(parents=True, exist_ok=True)
         (Path(site) / "installed.txt").write_text("ok", encoding="utf-8")
 
-    def run_prepare(self, sources, deps_ready=False, pip=None):
+    def run_prepare(self, sources, deps_ready=False, pip=None, deps_check=None, inference_check=None, **kwargs):
         return prepare.prepare(self.home, manifest=self.manifest, model_sources=sources,
                                indexes=["https://mirror-a/simple", "https://mirror-b/simple"],
-                               pip_install=pip or self.pip, deps_check=lambda site: deps_ready)
+                               pip_install=pip or self.pip,
+                               deps_check=deps_check or (lambda site: deps_ready or (site / "installed.txt").is_file()),
+                               inference_check=inference_check or (lambda site, model: True), **kwargs)
 
     def test_downloads_from_the_first_source_that_verifies_and_writes_a_manifest(self):
         good, bad = self.servers
@@ -72,7 +76,8 @@ class PrepareTests(unittest.TestCase):
         written = json.loads((model / "source.json").read_text(encoding="utf-8"))
         self.assertEqual(set(written["files"]), set(self.manifest["files"]))
         self.assertFalse(list(model.glob("*.part")))
-        status = prepare.status(self.home, deps_check=lambda site: True, manifest=self.manifest)
+        status = prepare.status(self.home, deps_check=lambda site: True, manifest=self.manifest,
+                                inference_check=lambda site, model: True)
         self.assertTrue(status["model"])
 
     def test_all_sources_failing_leaves_no_half_file_and_records_the_error(self):
@@ -107,12 +112,52 @@ class PrepareTests(unittest.TestCase):
 
     def test_progress_reports_done_and_the_site_dir_for_the_adapter(self):
         good, _ = self.servers
-        self.run_prepare([good + "/m/{path}"])
-        progress = json.loads(prepare.progress_file(self.home).read_text(encoding="utf-8"))
+        path = self.home / "custom-data" / "prepare.json"
+        self.run_prepare([good + "/m/{path}"], progress_path=path, run_id="current")
+        progress = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(progress["stage"], "done")
         self.assertEqual(progress["percent"], 100)
+        self.assertEqual(progress["run_id"], "current")
         self.assertEqual(Path(progress["site"]), prepare.site_dir(self.home))
         self.assertEqual(Path(progress["model_dir"]), prepare.model_dir(self.home))
+        self.assertFalse(prepare.progress_file(self.home).exists())
+
+    def test_successful_pip_install_is_not_ready_if_dependencies_cannot_load(self):
+        out = self.run_prepare([], deps_check=lambda site: False)
+        self.assertFalse(out["deps"])
+        self.assertFalse(out["model"])
+        self.assertIn("无法加载", out["error"])
+        self.assertEqual(len(self.installs), 1)
+        self.assertEqual(json.loads(prepare.progress_file(self.home).read_text())["stage"], "failed")
+
+    def test_macos_library_validation_failure_does_not_reinstall_the_same_wheel(self):
+        site = prepare.site_dir(self.home)
+        site.mkdir(parents=True)
+        with patch.object(prepare.sys, "platform", "darwin"), patch.object(prepare.subprocess, "run") as run:
+            run.return_value.returncode = 1
+            run.return_value.stderr = b"mapping process and mapped file have different Team IDs"
+            out = self.run_prepare([], deps_check=prepare.deps_ready)
+        self.assertIn("macOS 拒绝", out["error"])
+        self.assertFalse(out["deps"])
+        self.assertEqual(self.installs, [])
+
+    def test_cached_files_must_pass_inference_on_every_run(self):
+        good, _ = self.servers
+        self.assertTrue(self.run_prepare([good + "/m/{path}"])["model"])
+        self.installs.clear()
+
+        def failed_inference(site, model):
+            progress = json.loads(prepare.progress_file(self.home).read_text())
+            self.assertEqual(progress["stage"], "verify")
+            self.assertEqual(model, prepare.model_dir(self.home))
+            return False
+
+        out = self.run_prepare([], inference_check=failed_inference)
+        self.assertTrue(out["deps"])
+        self.assertFalse(out["model"])
+        self.assertIn("推理检查", out["error"])
+        self.assertEqual(self.installs, [])
+        self.assertEqual(json.loads(prepare.progress_file(self.home).read_text())["stage"], "failed")
 
     def test_the_shipped_manifest_pins_the_quantized_model(self):
         files = prepare.MODEL_MANIFEST["files"]

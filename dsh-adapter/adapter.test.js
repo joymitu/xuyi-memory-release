@@ -1194,22 +1194,45 @@ test('packaged runtime puts the prepared site on PYTHONPATH and points at the qu
   assert.equal(rt.home, home);
 });
 
-test('first-run prepare starts in the background only in packaged mode and only when missing', async t => {
+test('packaged startup verifies existing assets and ignores stale progress', async t => {
   const cwd = mkdtempSync(join(tmpdir(), 'xuyi-prepare-'));
   t.after(() => rmSync(cwd, { recursive: true }));
-  const { maybePrepare } = await import('./index.js');
+  const { EventEmitter } = await import('node:events');
+  const { maybePrepare, prepareStateOf } = await import('./index.js');
   const launched = [];
-  const launch = (python, args, options) => { launched.push({ python, args, options }); return { unref() {} }; };
-  const packaged = { mode: 'packaged', python: '/py', env: { A: '1' }, cwd, modelDir: '/m', siteDir: '/s', dataDir: '/d', home: '/h' };
-  assert.equal(maybePrepare(packaged, { exists: () => false, launch }), true);
-  // 明确带上 home：测试（或配置了 homeDir）时绝不能落到真实用户目录（真机上踩过）。
-  assert.deepEqual(launched[0].args, ['-m', 'xuyi', 'prepare', '--home', '/h']);
+  const child = new EventEmitter();
+  const launch = (python, args, options) => { launched.push({ python, args, options }); return child; };
+  const dataDir = join(cwd, 'custom');
+  const modelDir = join(cwd, 'model');
+  const siteDir = join(cwd, 'site');
+  const runtime = { mode: 'packaged', python: '/py', env: { A: '1' }, cwd: dataDir, modelDir, siteDir, dataDir, home: cwd };
+  for (const dir of [dataDir, modelDir, join(siteDir, 'onnxruntime')]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(modelDir, 'source.json'), '{}');
+  const progressPath = join(dataDir, 'prepare.json');
+  writeFileSync(progressPath, JSON.stringify({ stage: 'done', percent: 100 }));
+  const packaged = { ...runtime };
+  assert.equal(maybePrepare(packaged, { launch }), true);
+  assert.deepEqual(launched[0].args, ['-m', 'xuyi', 'prepare', '--home', cwd,
+    '--progress-file', progressPath, '--run-id', packaged.prepareRun.id]);
   assert.equal(launched[0].python, '/py');
-  // 已就绪、开发模式、没有 Python、被关掉：都不启动。
-  assert.equal(maybePrepare(packaged, { exists: () => true, launch }), false);
-  assert.equal(maybePrepare({ ...packaged, mode: 'project' }, { exists: () => false, launch }), false);
-  assert.equal(maybePrepare({ ...packaged, python: null }, { exists: () => false, launch }), false);
-  assert.equal(maybePrepare(packaged, { exists: () => false, launch, enabled: false }), false);
+  assert.deepEqual(prepareStateOf(packaged), { stage: 'waiting', percent: 0, ready: false });
+  const writeProgress = progress => writeFileSync(progressPath, JSON.stringify({ ...progress, run_id: packaged.prepareRun.id }));
+  writeProgress({ stage: 'verify', percent: 95 });
+  assert.equal(prepareStateOf(packaged).ready, false);
+  writeProgress({ stage: 'done', percent: 100 });
+  assert.equal(prepareStateOf(packaged).ready, true);
+  writeProgress({ stage: 'failed', percent: 0, error: 'macOS 拒绝当前 Python 加载语义检索依赖' });
+  assert.equal(prepareStateOf(packaged).ready, false);
+  assert.match(prepareStateOf(packaged).error, /macOS 拒绝/);
+  writeProgress({ stage: 'verify', percent: 95 });
+  child.emit('exit', 1);
+  assert.equal(prepareStateOf(packaged).stage, 'failed');
+  assert.equal(maybePrepare(packaged, { launch }), false);
+  assert.equal(maybePrepare({ ...runtime, mode: 'project' }, { launch }), false);
+  const missing = { ...runtime, python: null };
+  assert.equal(maybePrepare(missing, { launch }), false);
+  assert.equal(prepareStateOf(missing).stage, 'failed');
+  assert.equal(maybePrepare(runtime, { launch, enabled: false }), false);
   assert.equal(launched.length, 1);
 });
 

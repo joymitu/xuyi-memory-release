@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -60,14 +61,18 @@ def progress_file(home):
     return Path(home) / ".xuyi" / "data" / "prepare.json"
 
 
-def _write_progress(home, **data):
-    path = progress_file(home)
+def _write_progress(home, path, run_id, **data):
     path.parent.mkdir(parents=True, exist_ok=True)
     data.update(site=str(site_dir(home)), model_dir=str(model_dir(home)),
-                at=time.strftime("%Y-%m-%dT%H:%M:%S"))
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+                at=time.strftime("%Y-%m-%dT%H:%M:%S"), run_id=run_id)
+    stream = tempfile.NamedTemporaryFile(dir=path.parent, mode="w", encoding="utf-8", delete=False)
+    tmp = Path(stream.name)
+    try:
+        with stream:
+            json.dump(data, stream, ensure_ascii=False)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def deps_ready(site):
@@ -76,7 +81,25 @@ def deps_ready(site):
         return False
     env = {**os.environ, "PYTHONPATH": str(site), "PYTHONNOUSERSITE": "1"}
     try:
-        done = subprocess.run([sys.executable, "-s", "-c", "import onnxruntime, tokenizers"],
+        done = subprocess.run([sys.executable, "-s", "-c", "import numpy, onnxruntime, tokenizers"],
+                              env=env, capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    stderr = done.stderr.lower()
+    if sys.platform == "darwin" and done.returncode and (
+            b"different team ids" in stderr or b"library load disallowed" in stderr):
+        raise RuntimeError("macOS 拒绝当前 Python 加载语义检索依赖")
+    return done.returncode == 0
+
+
+def check_inference(site, model):
+    """用同一个解释器加载正式模型，并实际执行一次推理。"""
+    source = Path(__file__).resolve().parent.parent
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(map(str, (source, site))), "PYTHONNOUSERSITE": "1"}
+    code = ("import sys; from xuyi.embeddings import OnnxEmbedder; "
+            "OnnxEmbedder(sys.argv[1]).encode(['检索测试'], query=True)")
+    try:
+        done = subprocess.run([sys.executable, "-s", "-c", code, str(model)],
                               env=env, capture_output=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
         return False
@@ -104,13 +127,21 @@ def model_ready(home, manifest=MODEL_MANIFEST):
                for name, meta in manifest["files"].items())
 
 
-def status(home, deps_check=deps_ready, manifest=MODEL_MANIFEST):
+def status(home, deps_check=deps_ready, manifest=MODEL_MANIFEST, inference_check=check_inference):
     try:
         progress = json.loads(progress_file(home).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         progress = None
-    return {"deps": bool(deps_check(site_dir(home))), "model": model_ready(home, manifest),
-            "site": str(site_dir(home)), "model_dir": str(model_dir(home)), "progress": progress}
+    site, model = site_dir(home), model_dir(home)
+    result = {"deps": False, "model": False,
+              "site": str(site), "model_dir": str(model), "progress": progress}
+    try:
+        result["deps"] = bool(deps_check(site))
+        if result["deps"] and model_ready(home, manifest):
+            result["model"] = bool(inference_check(site, model))
+    except RuntimeError as exc:
+        result["error"] = str(exc)
+    return result
 
 
 def _fetch(url, target, expect_sha, expect_bytes, report):
@@ -166,41 +197,48 @@ def _download_model(home, manifest, sources, progress):
 
 
 def prepare(home=None, manifest=MODEL_MANIFEST, model_sources=MODEL_SOURCES, indexes=PIP_INDEXES,
-            pip_install=pip_install, deps_check=deps_ready):
+            pip_install=pip_install, deps_check=deps_ready, inference_check=check_inference,
+            progress_path=None, run_id=None):
     home = Path(home or Path.home())
+    path = Path(progress_path) if progress_path else progress_file(home)
+
+    def write_progress(**data):
+        _write_progress(home, path, run_id, **data)
+
     result = {"deps": False, "model": False}
     try:
-        _write_progress(home, stage="deps", percent=0)
+        write_progress(stage="deps", percent=0)
         site = site_dir(home)
-        if deps_check(site):
-            result["deps"] = True
-        else:
+        if not deps_check(site):
             reasons = []
             for index in indexes:
                 try:
                     pip_install(site, PACKAGES, index)
-                    result["deps"] = True
                     break
                 except Exception as exc:
                     reasons.append(f"{index.split('/')[2]}: {str(exc)[:120]}")
-            if not result["deps"]:
+            else:
                 raise RuntimeError("语义依赖安装失败（" + "；".join(reasons) + "）")
-        _write_progress(home, stage="model", percent=40)
-        if model_ready(home, manifest):
-            result["model"] = True
-        else:
+            if not deps_check(site):
+                raise RuntimeError("当前 Python 无法加载已安装的语义检索依赖")
+        result["deps"] = True
+        write_progress(stage="model", percent=40)
+        if not model_ready(home, manifest):
             last = [0.0]
 
             def report(got, total):
                 now = time.monotonic()
                 if now - last[0] > 0.5:
                     last[0] = now
-                    _write_progress(home, stage="model", percent=40 + int(60 * got / max(total, 1)))
+                    write_progress(stage="model", percent=40 + int(50 * got / max(total, 1)))
 
             _download_model(home, manifest, model_sources, report)
-            result["model"] = True
-        _write_progress(home, stage="done", percent=100)
+        write_progress(stage="verify", percent=95)
+        if not inference_check(site, model_dir(home)):
+            raise RuntimeError("中文模型未通过本地推理检查")
+        result["model"] = True
+        write_progress(stage="done", percent=100)
     except Exception as exc:
         result["error"] = str(exc)[:400]
-        _write_progress(home, stage="failed", percent=0, error=result["error"])
+        write_progress(stage="failed", percent=0, error=result["error"])
     return result
