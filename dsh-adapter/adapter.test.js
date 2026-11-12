@@ -1112,6 +1112,31 @@ test('the guide renders a new QQ QR code even when prior chats and a persona are
   assert.equal(load({ phase: 'bound' }).next, 'done');
 });
 
+test('the guide celebrates only after recall works and opens the memory tab from the finish screen', () => {
+  const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
+  const script = page.slice(page.indexOf('const WIZ_STEPS'), page.indexOf('function openWizard'));
+  const intro = {}, progress = {}, finish = {};
+  const box = { querySelector: selector => selector === '[data-finish]' ? finish : {}, querySelectorAll: () => [] };
+  const document = { getElementById: id => ({ wizIntro: intro, wizProgress: progress, wizStep: box })[id] };
+  const events = [];
+  const render = new Function('setupState', 'bindState', 'document', 'hourText', 'closeWizard', 'showTab',
+    script + 'return () => renderWizard();');
+  const state = { qq: { installed: true }, persona: { configured: true }, health: { recording: true, recall: false },
+    diary_hour: 20 };
+  const redraw = render(state, { phase: 'bound' }, document, hour => hour === 20 ? '晚上八点' : '其他时间',
+    () => events.push('closed'), tab => events.push(tab));
+  redraw();
+  assert.equal(intro.hidden, false);
+  assert.doesNotMatch(box.innerHTML, /恭喜|data-finish/);
+  state.health.recall = true;
+  redraw();
+  assert.equal(intro.hidden, true);
+  assert.equal((progress.innerHTML.match(/class="done"/g) ?? []).length, 4);
+  assert.match(box.innerHTML, /恭喜.*晚上八点.*data-finish>看看 TA 的记忆/);
+  finish.onclick();
+  assert.deepEqual(events, ['closed', 'memory']);
+});
+
 test('persona details preview without applying and save edits only when confirmed', async () => {
   const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
   const script = page.slice(page.indexOf('function personaBlock'), page.indexOf('function hourBlock'));

@@ -349,8 +349,10 @@ details.raw[open] summary::before { content: "▾ "; }
 <div class="setup" id="setup" hidden>
   <div class="setup-card" role="dialog" aria-label="开始使用续忆">
     <button class="x" id="setupClose" title="稍后再说">×</button>
-    <h2>欢迎用续忆</h2>
-    <p class="sub">弄好这几步，就能在 QQ 上找TA聊天了。</p>
+    <div id="wizIntro">
+      <h2>欢迎用续忆</h2>
+      <p class="sub">弄好这几步，就能在 QQ 上找TA聊天了。</p>
+    </div>
     <div class="wiz-progress" id="wizProgress"></div>
     <section class="wiz-step" id="wizStep"></section>
   </div>
@@ -781,6 +783,7 @@ function renderWizard(force = false) {
     + (wizManual !== null ? `|m${wizManual}|${stepDone(step)}` : '');
   if (!force && signature === wizShown) return;
   wizShown = signature;
+  document.getElementById('wizIntro').hidden = step === 'done';
   const index = WIZ_STEPS.indexOf(step === 'check' ? 'hello' : step);
   document.getElementById('wizProgress').innerHTML = WIZ_STEPS.slice(0, 4)
     .map((_, i) => `<span class="${i < index ? 'done' : i === index ? 'now' : ''}"></span>`).join('');
@@ -872,12 +875,10 @@ function renderWizard(force = false) {
       + '<span class="wiz-wait">整理中……</span>' + later;
   } else {
     const hour = Number.isInteger(s.diary_hour) ? s.diary_hour : 22;
-    const h = s.health ?? {};
-    box.innerHTML = '<div class="done-mark">✓</div><h3>弄好了</h3>'
-      + '<p class="checks">✓ QQ 连上了　✓ 续忆收到了你的消息' + (h.messages ? `（${h.messages} 句）` : '') + '　✓ TA想得起来</p>'
-      + `<p>以后你跟TA说过的事，TA都记着，每天${hourText(hour)}写一页日记。`
-      + 'TA记得你什么，在「TA的记忆」里能看到。</p>'
-      + '<button class="btn" data-finish>去看看</button>' + (manual ? later : '');
+    box.innerHTML = '<div class="done-mark" aria-hidden="true">✓</div><h3>恭喜，续忆可以用了！</h3>'
+      + '<p>QQ 已经连上，续忆也记下了你发来的消息。接下来，照常在 QQ 上跟 TA 聊就好。</p>'
+      + `<p>有私聊的日子，续忆会在${hourText(hour)}整理当天的日记。</p>`
+      + '<button class="btn" data-finish>看看 TA 的记忆</button>' + (manual ? later : '');
     box.querySelector('[data-finish]').onclick = () => { closeWizard(); showTab('memory'); };
   }
   box.querySelectorAll('[data-later]').forEach(b => { b.onclick = dismissWizard; });
