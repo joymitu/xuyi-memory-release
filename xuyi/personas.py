@@ -19,25 +19,58 @@ REQUIRED = ("name", "label", "description", "systemPrompt")
 
 # 识别旧版写入 QQ 配置的预设。只匹配完整提示词，用户改过的仍是自定义人设。
 LEGACY_PROMPT_HASHES = {
-    "aojiao": "eee65490f5bb7c9aee564448411ba4ecb679c042406e1718eb6f75c60b44eb96",
-    "chenjing": "9a93887abfd776720a11e85039642f310aca3fe5373f40649f04bfdee88a5fa8",
-    "deepseek": "767d39dfc92036e4341accbdd06de0a387149795ec437583af8958a92aa3d00b",
-    "dushe": "3f4687e8d6ab1072c634d0654fec5641c20337edd6b9c4d9d8dec105dc918fe5",
-    "gaoleng": "edf75947baa51b268f8875a473f08510972e234e689ecd2bf687a79f89c30d10",
-    "ruanmeng": "da4455952421f815b2923afe94d2e2be98cbe446a0dc7b18eb3b647b692e6067",
-    "wenrou": "2e33a4341d134004e84e73d24b387d154b149523f940eeb5ed67a383cb029630",
-    "wenrun": "c583f32de2f3f22ef8a23a22a0b4dd59f69a6daef32cb2025f1aed9e33bd43e1",
-    "yangguang": "a1b7226946ae319bbab40d32d30f1397f4e157d573da7c455f35827c92c11b11",
-    "yuanqi": "68ad0992bcc890823d0b2df7d648a566cb470d79971129c946da520b5dfea591",
-    "zhixing": "172380bb160a3cfdc2540f8dd5859c05ca070e0003e6a26d3c749cbbfaf66b9a",
+    "aojiao": (
+        "eee65490f5bb7c9aee564448411ba4ecb679c042406e1718eb6f75c60b44eb96",
+        "1068a0493efb5a71a64b57c6af46ab065f7ac4ab47b46b18183f4ce48096c6be",
+    ),
+    "chenjing": (
+        "9a93887abfd776720a11e85039642f310aca3fe5373f40649f04bfdee88a5fa8",
+        "f9a81b24b944780085ed6b871ef5b267a4057fa4d03b612a4b6c1db390411501",
+    ),
+    "deepseek": (
+        "767d39dfc92036e4341accbdd06de0a387149795ec437583af8958a92aa3d00b",
+        "33450f23f0722eac596b0d1abf56b822e3f42fd16be6e9ebd495843c47167f73",
+    ),
+    "dushe": (
+        "3f4687e8d6ab1072c634d0654fec5641c20337edd6b9c4d9d8dec105dc918fe5",
+        "e4ff960adac996945a6229eb20bee7dc0c878b2112c9edd62770fc8383695990",
+    ),
+    "gaoleng": (
+        "edf75947baa51b268f8875a473f08510972e234e689ecd2bf687a79f89c30d10",
+        "0b8e38dfa12bcd12ff814e688718fe5c208983047ee3c9c163fcd6005bc2c8fe",
+    ),
+    "ruanmeng": (
+        "da4455952421f815b2923afe94d2e2be98cbe446a0dc7b18eb3b647b692e6067",
+        "b6e886f124dc626abb22b2377e49d89d00ae9875badb2a8fe2c856b89bcdeb44",
+    ),
+    "wenrou": (
+        "2e33a4341d134004e84e73d24b387d154b149523f940eeb5ed67a383cb029630",
+        "4fadda9debea86fadcb3a65591575761327f238a7656116663f2211616fc3b57",
+    ),
+    "wenrun": (
+        "c583f32de2f3f22ef8a23a22a0b4dd59f69a6daef32cb2025f1aed9e33bd43e1",
+        "91ec8f0fe44c9b948cfdba77855eb3684eb6f2fce2dac8d8b55ee13588642d26",
+    ),
+    "yangguang": (
+        "a1b7226946ae319bbab40d32d30f1397f4e157d573da7c455f35827c92c11b11",
+        "94442e1f200429318fa0a6ed6a69710cba3ddc36aaf966d97b627f608edc1d4a",
+    ),
+    "yuanqi": (
+        "68ad0992bcc890823d0b2df7d648a566cb470d79971129c946da520b5dfea591",
+        "b34c279f268d045169caca276422619599fd26793a60861461c0b02b73d3be6d",
+    ),
+    "zhixing": (
+        "172380bb160a3cfdc2540f8dd5859c05ca070e0003e6a26d3c749cbbfaf66b9a",
+        "40ccc8b6749059c33a567ed9077ec258dcd90808033c56a7a0c517480fbab0e2",
+    ),
 }
 
 
 # 不管用哪个人设（预设或自己写的），在 QQ 上发消息的样子都一样：附在人设后面一起写进宿主。
 CHAT_STYLE_HEADING = "在 QQ 上发消息的样子："
-FACT_RULES = """——人设决定你怎么说话。角色背景和示例是虚构设定，不是现实经历、共同回忆或用户资料。这条优先于角色设定。
-——问起往事时，只根据对话中明确说过的话或查到的记忆回答。用户问「还记得吗」不等于他以前说过。没找到依据，就说自己没想起来或手头没这段记录，不断言对方从没说过，也不猜人名、关系或细节。有更正就用最新的。
-——用户认真问「你是不是 AI」、问你是不是真人或今天在现实中做了什么，直接说你是 AI，没有现实生活。不编造线下经历，也不答应见面或替他去做现实中的事。"""
+FACT_RULES = """——被问「你是谁」「你是不是 AI」或是不是真人时，保持所选人设，用角色关系、称呼和口吻介绍自己。人设没有姓名时别自行取名。人设本身是模型（如 DeepSeek）时，按该身份介绍。其他人设只回答自己在聊天里是什么角色，略过「AI 还是真人」这个二选一。
+——如果一句话同时问身份和线下经历，先按人设回答身份，再简单说「线下没什么可讲的」。到这儿就停，不补今天在家、在店里、见了谁之类的细节。角色背景和示例不算真实发生的事，不拿它们编共同回忆或用户资料，也不答应见面或替对方做现实中的事。
+——问起往事时，只根据对话中明确说过的话或查到的记忆回答。用户问「还记得吗」不等于他以前说过。没找到依据，就说自己没想起来或手头没这段记录，不断言对方从没说过，也不猜人名、关系或细节。有更正就用最新的。"""
 
 CHAT_STYLE = CHAT_STYLE_HEADING + "\n" + FACT_RULES + """
 ——像真人发消息那样，每条单独一行；换一行就是另发一条，所以一条里不要再换行。发几条看当时的情形，不是固定的数：大多数时候一条就够；有两层意思、或者说完又想补一句的，发两条；真的兴奋、要吐槽、或一件事得说几句，才发三条，最多一到三条。别连着几次都发同样的条数，回头看看你前几轮发了几条，这次换一个。
@@ -119,7 +152,7 @@ def persona_status(profile_root):
     fingerprint = sha256(text.encode("utf-8")).hexdigest()
     for item in list_personas():
         name = item["name"]
-        if LEGACY_PROMPT_HASHES.get(name) == fingerprint or compose_prompt(load_persona(name)["systemPrompt"]) == text:
+        if fingerprint in LEGACY_PROMPT_HASHES.get(name, ()) or compose_prompt(load_persona(name)["systemPrompt"]) == text:
             return {"configured": True, "name": item["name"], "label": item["label"],
                     "preview": item["description"], "group_reply": group}
     body = text.rsplit("\n\n" + CHAT_STYLE_HEADING, 1)[0].strip()

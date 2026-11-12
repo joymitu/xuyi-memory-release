@@ -634,7 +634,7 @@ function personaBlock(box, sayId, { kicker = '', onSaved } = {}) {
     + (bindState?.phase === 'bound' ? '' : '绑定 QQ 后会使用这份人设。') : '';
   box.innerHTML = (kicker ? `<div class="wiz-kicker">${kicker}</div><h3>选TA的样子</h3>`
       : `<h3>TA的样子${saved ? '<span class="ok">✓ 已保存</span>' : ''}</h3>`)
-    + `<p>${current}挑一个，或者自己写几句：TA叫什么、跟你什么关系、说话什么样。</p>`
+    + `<p>${current}挑一个，或者自己写几句：TA是什么性格、跟你什么关系、说话什么样。</p>`
     + `<div class="presets">${presets}</div>`
     + `<div class="persona-editor" id="${editorId}" hidden>`
     + `<label for="${editorId}Text"></label><p>可以直接修改。改过的内容会作为自定义人设使用，原预设会保留。</p>`
@@ -642,7 +642,7 @@ function personaBlock(box, sayId, { kicker = '', onSaved } = {}) {
     + '<div class="persona-editor-actions"><button class="btn" data-save-detail>保存并使用</button>'
     + '<button class="btn ghost" data-close-detail>取消</button></div>'
     + `<div class="say" role="status" id="${detailSayId}"></div></div>`
-    + '<textarea class="own" data-own-text placeholder="也可以自己写：TA叫什么、和你什么关系、说话什么样……"></textarea>'
+    + '<textarea class="own" data-own-text placeholder="也可以自己写：TA是什么性格、和你什么关系、说话什么样……"></textarea>'
     + '<button class="btn ghost" data-own>用我写的</button>'
     + `<p style="margin-top:12px">群里：<select class="hour" data-group>`
     + `<option value="mention"${s.persona?.group_reply !== 'all' ? ' selected' : ''}>有人 @ TA才回</option>`

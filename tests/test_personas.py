@@ -39,11 +39,15 @@ class Presets(unittest.TestCase):
                 self.assertLessEqual(len(text), 700)
                 self.assertNotIn("**", text)
 
-    def test_presets_do_not_carry_real_names(self):
-        # 隐私：用户给她起的名字不能出现在任何预设里（真名不写进测试，这里只防常见占位泄漏）。
+    def test_presets_introduce_the_role_without_a_personal_name(self):
         for item in list_personas():
-            text = load_persona(item["name"])["systemPrompt"]
-            self.assertNotIn("X」", text)
+            with self.subTest(name=item["name"]):
+                text = load_persona(item["name"])["systemPrompt"]
+                identity = text.split("\n\n", 1)[0]
+                self.assertNotIn("X」", text)
+                if item["name"] != "deepseek":
+                    self.assertTrue(identity.startswith("【你是谁】\n你是"))
+                    self.assertNotRegex(identity, r"你叫|姓名|他的名字")
 
     def test_deepseek_preset_is_called_dafeiyu(self):
         # 用户定的：「DeepSeek本尊」这一项就叫「大肥鱼」，描述别玩网络梗。
@@ -53,7 +57,8 @@ class Presets(unittest.TestCase):
         self.assertIn("大肥鱼", load_persona("deepseek")["systemPrompt"])
 
     def test_fact_rules_apply_to_private_and_group_prompts(self):
-        self.assertIn("是不是 AI", CHAT_STYLE)
+        self.assertIn("保持所选人设，用角色关系、称呼和口吻介绍自己", CHAT_STYLE)
+        self.assertNotIn("直接说你是 AI", CHAT_STYLE)
         for item in list_personas():
             with self.subTest(name=item["name"]):
                 text = load_persona(item["name"])["systemPrompt"]
@@ -105,7 +110,7 @@ class GroupSettings(unittest.TestCase):
         suffix = "\n\n在 QQ 上发消息的样子：\n——旧版共用规则。"
         legacy = body + suffix
         fingerprint = sha256(legacy.encode("utf-8")).hexdigest()
-        with patch.dict("xuyi.personas.LEGACY_PROMPT_HASHES", {"wenrou": fingerprint}):
+        with patch.dict("xuyi.personas.LEGACY_PROMPT_HASHES", {"wenrou": (fingerprint,)}):
             self.assertEqual(persona_status(profile_with({"directPrompt": legacy}))["name"], "wenrou")
             status = persona_status(profile_with({"directPrompt": body + "说话简短。" + suffix}))
         self.assertIsNone(status["name"])
