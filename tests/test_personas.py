@@ -1,12 +1,14 @@
 """预设人设与群聊设置（2026-11-11 重写：结构化人设、群里也有人设、群里怎么回）。"""
 import tempfile
 import unittest
+from hashlib import sha256
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
-from xuyi.personas import (CHAT_STYLE, GROUP_STYLE, apply_persona, compose_group_prompt, list_personas,
-                           load_persona, persona_status)
+from xuyi.personas import (CHAT_STYLE, FACT_RULES, GROUP_STYLE, apply_persona, compose_group_prompt, compose_prompt,
+                           list_personas, load_persona, persona_status)
 
 SECTIONS = ("【你是谁】", "【性格和说话】", "【他不同状态时】", "【例子】")
 
@@ -50,8 +52,14 @@ class Presets(unittest.TestCase):
         self.assertNotIn("疯", item["description"])
         self.assertIn("大肥鱼", load_persona("deepseek")["systemPrompt"])
 
-    def test_honesty_rule_is_shared(self):
+    def test_fact_rules_apply_to_private_and_group_prompts(self):
         self.assertIn("是不是 AI", CHAT_STYLE)
+        for item in list_personas():
+            with self.subTest(name=item["name"]):
+                text = load_persona(item["name"])["systemPrompt"]
+                self.assertIn(FACT_RULES, compose_group_prompt(text))
+                self.assertIn(FACT_RULES, compose_prompt(text))
+        self.assertIn("不加任何发言人前缀", GROUP_STYLE)
 
 
 class GroupSettings(unittest.TestCase):
@@ -91,6 +99,17 @@ class GroupSettings(unittest.TestCase):
 
     def test_status_defaults_to_host_default(self):
         self.assertEqual(persona_status(profile_with())["group_reply"], "mention")
+
+    def test_old_preset_is_recognized_without_mistaking_an_edit_for_a_preset(self):
+        body = "你是一个喜欢折纸的朋友。"
+        suffix = "\n\n在 QQ 上发消息的样子：\n——旧版共用规则。"
+        legacy = body + suffix
+        fingerprint = sha256(legacy.encode("utf-8")).hexdigest()
+        with patch.dict("xuyi.personas.LEGACY_PROMPT_HASHES", {"wenrou": fingerprint}):
+            self.assertEqual(persona_status(profile_with({"directPrompt": legacy}))["name"], "wenrou")
+            status = persona_status(profile_with({"directPrompt": body + "说话简短。" + suffix}))
+        self.assertIsNone(status["name"])
+        self.assertEqual(status["preview"], body + "说话简短。")
 
 
 if __name__ == "__main__":

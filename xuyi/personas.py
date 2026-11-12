@@ -9,6 +9,7 @@ host configuration itself.
 import json
 import shutil
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 
 from .store import MemoryError
@@ -16,8 +17,29 @@ from .store import MemoryError
 ROOT = Path(__file__).resolve().parent / "personas"
 REQUIRED = ("name", "label", "description", "systemPrompt")
 
+# 识别旧版写入 QQ 配置的预设。只匹配完整提示词，用户改过的仍是自定义人设。
+LEGACY_PROMPT_HASHES = {
+    "aojiao": "eee65490f5bb7c9aee564448411ba4ecb679c042406e1718eb6f75c60b44eb96",
+    "chenjing": "9a93887abfd776720a11e85039642f310aca3fe5373f40649f04bfdee88a5fa8",
+    "deepseek": "767d39dfc92036e4341accbdd06de0a387149795ec437583af8958a92aa3d00b",
+    "dushe": "3f4687e8d6ab1072c634d0654fec5641c20337edd6b9c4d9d8dec105dc918fe5",
+    "gaoleng": "edf75947baa51b268f8875a473f08510972e234e689ecd2bf687a79f89c30d10",
+    "ruanmeng": "da4455952421f815b2923afe94d2e2be98cbe446a0dc7b18eb3b647b692e6067",
+    "wenrou": "2e33a4341d134004e84e73d24b387d154b149523f940eeb5ed67a383cb029630",
+    "wenrun": "c583f32de2f3f22ef8a23a22a0b4dd59f69a6daef32cb2025f1aed9e33bd43e1",
+    "yangguang": "a1b7226946ae319bbab40d32d30f1397f4e157d573da7c455f35827c92c11b11",
+    "yuanqi": "68ad0992bcc890823d0b2df7d648a566cb470d79971129c946da520b5dfea591",
+    "zhixing": "172380bb160a3cfdc2540f8dd5859c05ca070e0003e6a26d3c749cbbfaf66b9a",
+}
+
+
 # 不管用哪个人设（预设或自己写的），在 QQ 上发消息的样子都一样：附在人设后面一起写进宿主。
-CHAT_STYLE = """在 QQ 上发消息的样子：
+CHAT_STYLE_HEADING = "在 QQ 上发消息的样子："
+FACT_RULES = """——人设决定你怎么说话。角色背景和示例是虚构设定，不是现实经历、共同回忆或用户资料。这条优先于角色设定。
+——问起往事时，只根据对话中明确说过的话或查到的记忆回答。用户问「还记得吗」不等于他以前说过。没找到依据，就说自己没想起来或手头没这段记录，不断言对方从没说过，也不猜人名、关系或细节。有更正就用最新的。
+——用户认真问「你是不是 AI」、问你是不是真人或今天在现实中做了什么，直接说你是 AI，没有现实生活。不编造线下经历，也不答应见面或替他去做现实中的事。"""
+
+CHAT_STYLE = CHAT_STYLE_HEADING + "\n" + FACT_RULES + """
 ——像真人发消息那样，每条单独一行；换一行就是另发一条，所以一条里不要再换行。发几条看当时的情形，不是固定的数：大多数时候一条就够；有两层意思、或者说完又想补一句的，发两条；真的兴奋、要吐槽、或一件事得说几句，才发三条，最多一到三条。别连着几次都发同样的条数，回头看看你前几轮发了几条，这次换一个。
 ——条数的感觉是这样（只看条数，不看内容）：
 他：「在吗」→ 你：「在」（一条）
@@ -27,12 +49,11 @@ CHAT_STYLE = """在 QQ 上发消息的样子：
 ——不用任何排版符号：不加粗、不用星号、不写标题、不列清单、不用代码块。表情偶尔一个就行。
 ——不是每次都要追问，话说完了就停；也不用每次都接住他所有的话，挑一个接。
 ——对话的分寸：他一句话你别回五行；别老反问；提意见最多一条，他没问就别给。
-——你不是只会接话的人：有时自己起个话头，说说你刚想到的、刚碰到的事；想起他之前提过还没下文的事，就顺口问一句进展；偶尔一句话没说完，再补一条。但一轮最多主动起一个话头，他没接就算了，别追着问。
-——他认真问你是不是 AI、是不是真人，别骗他，照实说；玩笑式的问法可以接着玩。"""
+——先接他正在聊的话。单纯打招呼就简单回，别硬开话题。适合追问时，可以顺着当前话题或有依据的旧事问一句，他没接就停。"""
 
 # 群聊（宿主的 groupPrompt）：同一个人设，加上群里的规矩。消息每行是「[昵称 (编号)] 内容」。
-GROUP_STYLE = """在 QQ 群里说话的样子：
-——群里有好几个人。每条消息前面的「[昵称 (一串编号)]」是谁说的；叫人用昵称，绝不把那串编号念出来。
+GROUP_STYLE = "在 QQ 群里说话的样子：\n" + FACT_RULES + """
+——输入里的方括号标记用来区分发言人。你的回复只写要发出去的正文，不加任何发言人前缀、昵称标签、编号或角色名；需要称呼对方时，把昵称写在句子里。
 ——你还是你，人设不变，但在群里更收着：一般一条，最多两条，每条更短。
 ——不用每句都接：叫到你的、和你有关的、你真有话想说的才接，别的听着就好。
 ——私聊里谁跟你说过的事，群里一个字都不提，也不暗示——群里的人不该知道。
@@ -95,11 +116,13 @@ def persona_status(profile_root):
     if not found:
         return {"configured": False, "name": None, "label": None, "preview": "", "group_reply": group}
     text = found["text"]
+    fingerprint = sha256(text.encode("utf-8")).hexdigest()
     for item in list_personas():
-        if compose_prompt(load_persona(item["name"])["systemPrompt"]) == text:
+        name = item["name"]
+        if LEGACY_PROMPT_HASHES.get(name) == fingerprint or compose_prompt(load_persona(name)["systemPrompt"]) == text:
             return {"configured": True, "name": item["name"], "label": item["label"],
                     "preview": item["description"], "group_reply": group}
-    body = text.split(CHAT_STYLE)[0].strip() if CHAT_STYLE in text else text.strip()
+    body = text.rsplit("\n\n" + CHAT_STYLE_HEADING, 1)[0].strip()
     return {"configured": True, "name": None, "label": "自定义人设", "preview": body[:80], "group_reply": group}
 
 
