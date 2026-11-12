@@ -74,7 +74,7 @@ def main():
     published = args.published or published_at(manifest["name"], manifest["version"])
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(build(published), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out.write_text(json.dumps(build(published), ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(out)
 
 

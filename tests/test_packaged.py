@@ -182,6 +182,23 @@ class MarketIndexTests(unittest.TestCase):
             self.assertIn("en", plugin[field])
 
 
+class PublishedIndexTests(unittest.TestCase):
+    """仓库里的 market/index.json 是用户添加的公开地址，必须和当前 manifest 一致。"""
+
+    def test_committed_index_matches_the_current_manifest(self):
+        from make_market_index import build
+        path = ROOT / "market/index.json"
+        self.assertNotIn(b"\r", path.read_bytes())
+        committed = json.loads(path.read_text(encoding="utf-8"))
+        stamp = committed["plugins"][0]["versions"][0]["publishTimestamp"]
+        self.assertEqual(committed, build(stamp),
+                         "改了版本或简介后要重新运行 scripts/make_market_index.py")
+
+    def test_readme_points_at_the_committed_index(self):
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("https://raw.githubusercontent.com/joymitu/xuyi-memory-release/main/market/index.json", text)
+
+
 class PrivacyWordingTests(unittest.TestCase):
     def test_readmes_do_not_claim_nothing_leaves_the_computer(self):
         # 召回的原话、写日记用的当天聊天会交给用户配置的模型，不能写「不上传」。

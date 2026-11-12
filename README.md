@@ -47,6 +47,14 @@
 
 准备完成后，模型主动查记忆时可以按意思搜索。准备期间或失败时仍能照常聊天、记录，并按关键词查找。自动召回继续用关键词。
 
+### 也可以从插件市场装（可选）
+
+DSH 的插件市场还是实验功能。在「插件 → 实验性插件」里打开「自定义插件索引」，再到「发现」里添加下面这个地址，就能在市场里看到续忆并一键安装：
+
+```
+https://raw.githubusercontent.com/joymitu/xuyi-memory-release/main/market/index.json
+```
+
 ## 常见问题
 
 - **续忆打不开**：完全退出 DSH（包括托盘图标）再打开。原因记在 `~/.xuyi/data/adapter-errors.log`。
