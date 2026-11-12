@@ -199,6 +199,16 @@ class PublishedIndexTests(unittest.TestCase):
         self.assertIn("https://raw.githubusercontent.com/joymitu/xuyi-memory-release/main/market/index.json", text)
 
 
+class PublicReadmeTests(unittest.TestCase):
+    def test_readme_compares_without_naming_other_plugins(self):
+        # 对比只写「某记忆插件 A/B」，不点名；测试方法要写出来。
+        text = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+        for name in ("dsh-memory-engine", "neuron", "星图", "神经元", "jiudouliang", "shadowrjh"):
+            self.assertNotIn(name, text)
+        self.assertIn("某记忆插件 a", text)
+        self.assertIn("我们是怎么测的", text)
+
+
 class PrivacyWordingTests(unittest.TestCase):
     def test_readmes_do_not_claim_nothing_leaves_the_computer(self):
         # 召回的原话、写日记用的当天聊天会交给用户配置的模型，不能写「不上传」。
