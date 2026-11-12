@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xuyi-memory"
+version = "1.0.0"
+description = "可追溯、可恢复的本地情景记忆原型"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+semantic = ["numpy>=1.26,<3", "onnxruntime>=1.18,<2", "tokenizers>=0.20,<1"]
+persona = ["PyYAML>=6,<7"]
+
+[project.scripts]
+xuyi = "xuyi.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["xuyi*"]
+
+[tool.setuptools.package-data]
+xuyi = ["personas/*.json", "board.html", "fonts/*.ttf", "fonts/*.txt"]

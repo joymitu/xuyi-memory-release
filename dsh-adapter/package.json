@@ -1,0 +1,59 @@
+{
+  "name": "dsh-xuyi-memory",
+  "version": "1.0.0",
+  "description": "续忆 · 让 DeepSeek Harness 的 QQ 陪伴助手记得你说过的话，并写一本日记",
+  "icon": "./icon.png",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "logic.js",
+    "client.js",
+    "rhythm.js",
+    "cordis.patch.yml",
+    "icon.png",
+    "locale",
+    "images",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "qq",
+    "qqbot",
+    "memory",
+    "diary",
+    "companion",
+    "local-first"
+  ],
+  "license": "MIT",
+  "author": "xuyi-memory contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joymitu/xuyi-memory.git"
+  },
+  "homepage": "https://github.com/joymitu/xuyi-memory#readme",
+  "bugs": {
+    "url": "https://github.com/joymitu/xuyi-memory/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

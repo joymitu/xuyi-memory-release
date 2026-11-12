@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv
+.cache/
+data/
+models
+*.sqlite*
+*.egg-info/
+build/
+dist/
+
+.env
+.env.*
+*.tgz
+*.zip
+work/
