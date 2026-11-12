@@ -119,10 +119,6 @@ class PackStageTests(unittest.TestCase):
                 self.assertNotIn(b"\r", (out / rel).read_bytes(), rel)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ReleaseContentTests(unittest.TestCase):
     """要公开发布的包：插件页要的展示信息齐全，且不带任何本机/个人信息。"""
 
@@ -184,3 +180,16 @@ class MarketIndexTests(unittest.TestCase):
         self.assertTrue(set(plugin["metadata"]["labels"]) <= set(doc["metadata"]["labels"]))
         for field in ("title", "description"):
             self.assertIn("en", plugin[field])
+
+
+class PrivacyWordingTests(unittest.TestCase):
+    def test_readmes_do_not_claim_nothing_leaves_the_computer(self):
+        # 召回的原话、写日记用的当天聊天会交给用户配置的模型，不能写「不上传」。
+        for rel in ("README.md", "dsh-adapter/README.md"):
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertNotIn("不上传", text, rel)
+            self.assertIn("你配置的模型", text, rel)
+
+
+if __name__ == "__main__":
+    unittest.main()
