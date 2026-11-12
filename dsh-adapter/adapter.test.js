@@ -1056,19 +1056,54 @@ test('diary lives in the left sidebar next to QQ and plugins, not in the session
 });
 
 test('right after install: if setup is not finished, DSH switches to the 续忆 page once', async () => {
-  const run = async state => {
-    const { mod, slotsOf } = loadClient({ fetch: async () => ({ ok: true, json: async () => state }) });
+  const run = async (state, binding) => {
+    const { mod, slotsOf } = loadClient({ fetch: async path => ({
+      ok: true, json: async () => path === '/qqbot/im-qqbot/bind' ? binding : state,
+    }) });
     const selected = [];
     mod.apply({ slots: slotsOf([]), inject: (deps, fn) => fn({ slots: slotsOf([]), layout: { selectPanel: id => selected.push(id) } }) });
     await new Promise(done => setTimeout(done, 1800));
     return selected;
   };
-  assert.deepEqual(await run({ qq: { installed: false }, persona: { configured: false }, chatted: false }), ['xuyi-diary']);
-  assert.deepEqual(await run({ qq: { installed: true }, persona: { configured: true }, chatted: true,
-    health: { recording: true, recall: true, ok: true } }), []);
+  const saved = { qq: { installed: true }, persona: { configured: true }, chatted: true,
+    health: { recording: true, recall: true, ok: true } };
   // QQ 那边聊上了，但续忆没收到：还没算设置完，照样切过去让引导说清楚卡在哪。
-  assert.deepEqual(await run({ qq: { installed: true }, persona: { configured: true }, chatted: true,
-    health: { recording: false, recall: false, ok: false } }), ['xuyi-diary']);
+  const results = await Promise.all([
+    run({ qq: { installed: false }, persona: { configured: false }, chatted: false }, null),
+    run(saved, { phase: 'bound' }),
+    run({ ...saved, health: { recording: false, recall: false, ok: false } }, { phase: 'bound' }),
+    run(saved, { phase: 'waiting' }),
+  ]);
+  assert.deepEqual(results, [['xuyi-diary'], [], ['xuyi-diary'], ['xuyi-diary']]);
+});
+
+test('the guide renders a new QQ QR code even when prior chats and a persona are saved', () => {
+  const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
+  const script = page.slice(page.indexOf('const WIZ_STEPS'), page.indexOf('function openWizard'));
+  const box = { querySelector: () => ({}), querySelectorAll: () => [] };
+  const document = { getElementById: id => id === 'wizStep' ? box : {} };
+  const read = new Function('setupState', 'bindState', 'document', 'sessionStorage', 'renderPrepare',
+    script + `return {
+      next: wizardStep(),
+      scanned: stepDone('scan'),
+      render: () => renderWizard(true),
+      confirmLegacyScan: () => { scanAcknowledged = true; return stepDone('scan'); },
+    };`);
+  const saved = { qq: { installed: true }, persona: { configured: true }, chatted: true,
+    health: { recording: true, recall: true, ok: true } };
+  const load = binding => read(saved, binding, document, { getItem: () => '1' }, () => {});
+  for (const phase of ['starting', 'waiting', 'saving', 'failed']) {
+    const state = load({ phase });
+    assert.equal(state.next, 'scan');
+    assert.equal(state.scanned, false);
+    assert.equal(state.confirmLegacyScan(), false);
+  }
+  load({ phase: 'waiting', qrSvg: '<svg />' }).render();
+  assert.match(box.innerHTML, /data:image\/svg\+xml/);
+  assert.doesNotMatch(box.innerHTML, /data-ack/);
+  assert.equal(load(null).next, 'scan');
+  assert.equal(load(null).confirmLegacyScan(), true);
+  assert.equal(load({ phase: 'bound' }).next, 'done');
 });
 
 test('older hosts without a sidebar layout still get the diary as a header button', () => {

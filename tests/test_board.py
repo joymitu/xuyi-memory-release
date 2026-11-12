@@ -430,7 +430,7 @@ class SetupPanelPageTests(unittest.TestCase):
         # 做完的显示 ✓、可以上一步 / 下一步；新用户自动弹出的引导仍停在第一个没做完的步骤。
         page = (ROOT / 'xuyi/board.html').read_text(encoding='utf-8')
         self.assertIn("again.querySelector('button').onclick = () => openWizard(true);", page)
-        self.assertIn("if (wizardStep() !== 'done' && !flag('xuyi-wizard-later')) openWizard();", page)
+        self.assertIn("if (step !== 'done' && flag('xuyi-wizard-later') !== step) openWizard();", page)
         self.assertIn('data-prev', page)
         self.assertIn('data-next', page)
         self.assertIn('✓ 已经装好了。', page)

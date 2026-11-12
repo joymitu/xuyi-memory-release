@@ -575,9 +575,11 @@ function personaBlock(box, sayId, { kicker = '', onSaved } = {}) {
   const s = setupState;
   const presets = (s.presets ?? []).map(p => `<button class="preset${s.persona?.name === p.name ? ' on' : ''}" data-name="${esc(p.name)}">`
     + `<b>${esc(p.label)}</b>${esc(p.description)}</button>`).join('');
-  const current = s.persona?.configured ? `现在是：<b>${esc(s.persona.label)}</b>。` : '';
+  const saved = s.persona?.configured;
+  const current = saved ? `已保存<b>${esc(s.persona.label)}</b>。`
+    + (bindState?.phase === 'bound' ? '' : '绑定 QQ 后会使用这份人设。') : '';
   box.innerHTML = (kicker ? `<div class="wiz-kicker">${kicker}</div><h3>选TA的样子</h3>`
-      : `<h3>TA的样子${s.persona?.configured ? '<span class="ok">✓ 已设置</span>' : ''}</h3>`)
+      : `<h3>TA的样子${saved ? '<span class="ok">✓ 已保存</span>' : ''}</h3>`)
     + `<p>${current}挑一个，或者自己写几句：TA叫什么、跟你什么关系、说话什么样。</p>`
     + `<div class="presets">${presets}</div>`
     + '<textarea class="own" placeholder="也可以自己写：TA叫什么、和你什么关系、说话什么样……"></textarea>'
@@ -640,6 +642,7 @@ function renderSettings() {
 async function refreshSetup() {
   const [state, bind] = await Promise.all([loadSetup(), loadBind()]);
   if (state && !state.error) setupState = state;
+  if (bind?.phase) scanAcknowledged = false;
   bindState = bind;
 }
 
@@ -650,11 +653,17 @@ let wizTimer = null, wizShown = null;
 // 从「设置」手动打开：从第 1 步逐屏走（上一步 / 下一步），做完的步骤显示 ✓，想改的当屏改。
 // 新用户装好后自动弹出的引导不走这个：直接停在第一个没做完的步骤，做完自动往下走。
 let wizManual = null;
+let scanAcknowledged = false;
+
+function scanDone() {
+  const phase = bindState?.phase;
+  return phase ? phase === 'bound' : scanAcknowledged;
+}
 
 function stepDone(step) {
   const s = setupState, health = s.health ?? {};
   if (step === 'qq') return Boolean(s.qq?.installed);
-  if (step === 'scan') return bindState?.phase === 'bound' || Boolean(s.chatted || health.recording || flag('xuyi-scan-ack'));
+  if (step === 'scan') return scanDone();
   if (step === 'persona') return Boolean(s.persona?.configured);
   if (step === 'hello') return Boolean(health.recording && health.recall);
   return true;
@@ -668,13 +677,18 @@ function wizardStep() {
     return step === 'hello' && health.recording && !health.recall ? 'check' : step;
   }
   if (!s.qq?.installed) return 'qq';
-  const bound = bindState?.phase === 'bound';
-  if (!bound && !s.chatted && !health.recording && !flag('xuyi-scan-ack')) return 'scan';
+  if (!scanDone()) return 'scan';
   if (!s.persona?.configured) return 'persona';
   if (!health.recording) return 'hello';
   if (!health.recall) return 'check';
   return 'done';
 }
+
+function dismissWizard() {
+  if (wizManual === null) flag('xuyi-wizard-later', wizardStep());
+  closeWizard();
+}
+
 let helloSince = null;
 
 function renderWizard(force = false) {
@@ -728,7 +742,9 @@ function renderWizard(force = false) {
         say('sayQq', '装好了。把 DSH 完全退出（右下角托盘图标也退掉）再打开，会回到这一步。');
         return;
       }
-      await refreshSetup(); renderWizard(true);
+      await refreshSetup();
+      if (wizManual === 0 && setupState.qq?.installed && !scanDone()) wizManual = WIZ_STEPS.indexOf('scan');
+      renderWizard(true);
     };
   } else if (step === 'scan') {
     const phase = bindState?.phase;
@@ -740,13 +756,14 @@ function renderWizard(force = false) {
       : '<p>去 QQ 机器人页面用手机 QQ 扫码，扫好了回来点「扫好了」。</p>';
     box.innerHTML = '<div class="wiz-kicker">第 2 步 · 扫码</div><h3>用手机 QQ 扫码，建好你的机器人</h3>' + qr
       + '<div class="wiz-foot"><button class="btn ghost" data-open>打开 QQ 机器人页面</button>'
-      + '<button class="btn ghost" data-ack>扫好了</button>' + navButtons + '</div>'
+      + (!phase ? '<button class="btn ghost" data-ack>扫好了</button>' : '') + navButtons + '</div>'
       + '<div class="say" id="sayScan"></div>';
     box.querySelector('[data-open]').onclick = () => {
       if (window.parent === window) { say('sayScan', '在 DSH 左侧找到「QQ 机器人」，用手机 QQ 扫码。'); return; }
       window.parent.postMessage({ type: 'xuyi-open-qq' }, '*');
     };
-    box.querySelector('[data-ack]').onclick = () => { flag('xuyi-scan-ack', '1'); renderWizard(true); };
+    const ack = box.querySelector('[data-ack]');
+    if (ack) ack.onclick = () => { scanAcknowledged = true; renderWizard(true); };
   } else if (step === 'persona') {
     box.innerHTML = '<div data-persona></div>' + later;
     personaBlock(box.querySelector('[data-persona]'), 'sayWizPersona',
@@ -775,7 +792,7 @@ function renderWizard(force = false) {
       + '<button class="btn" data-finish>去看看</button>' + (manual ? later : '');
     box.querySelector('[data-finish]').onclick = () => { closeWizard(); showTab('memory'); };
   }
-  box.querySelectorAll('[data-later]').forEach(b => { b.onclick = () => { if (!manual) flag('xuyi-wizard-later', '1'); closeWizard(); }; });
+  box.querySelectorAll('[data-later]').forEach(b => { b.onclick = dismissWizard; });
   box.querySelectorAll('[data-prev]').forEach(b => { b.onclick = () => { wizManual -= 1; renderWizard(true); }; });
   box.querySelectorAll('[data-next]').forEach(b => { b.onclick = () => { wizManual += 1; renderWizard(true); }; });
 }
@@ -803,8 +820,9 @@ async function initSetup() {
   await refreshSetup();
   if (!setupState) return;
   document.getElementById('tabSettings').hidden = false;
-  document.getElementById('setupClose').onclick = () => { if (wizManual === null) flag('xuyi-wizard-later', '1'); closeWizard(); };
-  if (wizardStep() !== 'done' && !flag('xuyi-wizard-later')) openWizard();
+  document.getElementById('setupClose').onclick = dismissWizard;
+  const step = wizardStep();
+  if (step !== 'done' && flag('xuyi-wizard-later') !== step) openWizard();
 }
 
 // ---- TA的记忆 ----

@@ -120,13 +120,18 @@ window.__ModuleLoader__.load({
       try { opened = window.sessionStorage.getItem("xuyi-auto-opened") === "1"; } catch (ignored) {}
       function tick() {
         if (stopped || opened || tries++ >= 6) return;
-        fetch("/xuyi/setup/state", { cache: "no-store" }).then(function (res) {
-          return res.ok ? res.json() : null;
-        }).then(function (state) {
+        function readState(path) {
+          return fetch(path, { cache: "no-store" }).then(function (res) {
+            return res.ok ? res.json() : null;
+          });
+        }
+        Promise.all([readState("/xuyi/setup/state"),
+          readState("/qqbot/im-qqbot/bind").catch(function () { return null; })]).then(function (states) {
           if (stopped || opened) return;
+          var state = states[0], binding = states[1];
           if (!state) { timer = setTimeout(tick, 5000); return; }
-          // 「设置完」以续忆自己的体检为准：私聊的话进了续忆的档案、能想起来（QQ 连上了不算）。
-          var done = state.qq && state.qq.installed && state.persona && state.persona.configured
+          var done = binding && binding.phase === "bound"
+            && state.qq && state.qq.installed && state.persona && state.persona.configured
             && state.health && state.health.ok;
           if (done) return;
           try { layout.selectPanel(PANEL_ID); opened = true; window.sessionStorage.setItem("xuyi-auto-opened", "1"); }
