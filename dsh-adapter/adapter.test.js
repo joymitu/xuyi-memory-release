@@ -1126,13 +1126,15 @@ test('the guide celebrates only after recall works and opens the memory tab from
     () => events.push('closed'), tab => events.push(tab));
   redraw();
   assert.equal(intro.hidden, false);
+  assert.equal(progress.hidden, false);
   assert.doesNotMatch(box.innerHTML, /恭喜|data-finish/);
   state.health.recall = true;
   redraw();
   assert.equal(intro.hidden, true);
-  assert.equal((progress.innerHTML.match(/class="done"/g) ?? []).length, 4);
+  assert.equal(progress.hidden, true);
   assert.match(box.innerHTML, /信息予你无限，续忆重塑未来/);
-  assert.match(box.innerHTML, /恭喜.*续忆能帮 DeepSeek 想起来.*data-finish>看看 TA 的记忆/);
+  assert.match(box.innerHTML, /恭喜.*续忆能帮 DeepSeek 接上话.*data-finish>看看 TA 的记忆/);
+  assert.match(box.innerHTML, /记忆保存在本机.*「备份」.*导出完整记忆/);
   finish.onclick();
   assert.deepEqual(events, ['closed', 'memory']);
 });

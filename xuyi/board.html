@@ -300,7 +300,34 @@ details.raw[open] summary::before { content: "▾ "; }
 .wiz-wait { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13.5px; }
 .wiz-wait::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #8fbf8a; animation: pulse 1.4s ease infinite; }
 @keyframes pulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
-.done-mark { font-size: 40px; margin-bottom: 4px; }
+.setup-card:has(.wiz-complete) { width: min(600px, 100%); padding: clamp(22px, 5vw, 36px); }
+.wiz-complete { text-align: center; padding: 10px 0 4px; }
+.wiz-complete h3 { font-size: clamp(23px, 4.5vw, 32px); line-height: 1.35; margin: 0 0 16px; text-wrap: balance; }
+.wiz-complete p { max-width: 34em; margin: 0 auto 24px; text-wrap: pretty; }
+.wiz-complete .wiz-complete-copy span { display: block; }
+.wiz-complete .btn { min-height: 44px; padding-inline: 22px; }
+.wiz-complete .wiz-local-note { border-top: 1px solid var(--line); margin: 24px auto 0; padding-top: 14px;
+  font-size: 12.5px; }
+.wiz-memory-mark { width: 74px; height: 66px; position: relative; margin: 0 auto 20px; color: #4c745a; }
+.wiz-memory-mark::before, .wiz-memory-mark span { position: absolute; width: 44px; height: 35px;
+  border: 1px solid currentColor; border-radius: 12px 12px 12px 3px; content: ""; }
+.wiz-memory-mark::before { left: 9px; top: 8px; background: var(--page); transform: rotate(-10deg);
+  --mark-entry-x: -10px; animation: wiz-memory-arrive .5s ease-out both; }
+.wiz-memory-mark span { right: 8px; bottom: 9px; background: #e8f0e6; transform: rotate(8deg);
+  --mark-entry-x: 10px; animation: wiz-memory-arrive .5s .13s ease-out both; }
+.wiz-memory-mark span::after { content: ""; position: absolute; left: 11px; top: 11px; width: 19px; height: 8px;
+  border-block: 1px solid currentColor; opacity: .75; }
+@keyframes wiz-memory-arrive {
+  from { opacity: 0; translate: var(--mark-entry-x) 5px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@media (prefers-color-scheme: dark) {
+  .wiz-memory-mark { color: #a9c7ad; }
+  .wiz-memory-mark span { background: #26382e; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wiz-step, .wiz-memory-mark::before, .wiz-memory-mark span { animation: none; }
+}
 .wiz-step .checks { color: #2f6a35; background: #eef6ea; border-radius: 10px; padding: 8px 12px; font-size: 13.5px; }
 
 /* ---- 设置页 ---- */
@@ -785,7 +812,9 @@ function renderWizard(force = false) {
   wizShown = signature;
   document.getElementById('wizIntro').hidden = step === 'done';
   const index = WIZ_STEPS.indexOf(step === 'check' ? 'hello' : step);
-  document.getElementById('wizProgress').innerHTML = WIZ_STEPS.slice(0, 4)
+  const progress = document.getElementById('wizProgress');
+  progress.hidden = step === 'done';
+  progress.innerHTML = WIZ_STEPS.slice(0, 4)
     .map((_, i) => `<span class="${i < index ? 'done' : i === index ? 'now' : ''}"></span>`).join('');
   const box = document.getElementById('wizStep');
   const manual = wizManual !== null;
@@ -874,9 +903,13 @@ function renderWizard(force = false) {
       + '<p>续忆已经收到你的消息，正在建索引，几秒钟就好。一直停在这里的话，把 DSH 完全退出再打开。</p>'
       + '<span class="wiz-wait">整理中……</span>' + later;
   } else {
-    box.innerHTML = '<div class="done-mark" aria-hidden="true">✓</div><h3>信息予你无限，续忆重塑未来</h3>'
-      + '<p>恭喜，续忆已经记下了你在 QQ 发来的消息。下次聊起你提过的事，续忆能帮 DeepSeek 想起来，接着跟你聊。</p>'
-      + '<button class="btn" data-finish>看看 TA 的记忆</button>' + (manual ? later : '');
+    box.innerHTML = '<div class="wiz-complete"><div class="wiz-memory-mark" aria-hidden="true"><span></span></div>'
+      + '<h3>信息予你无限，续忆重塑未来</h3>'
+      + '<p class="wiz-complete-copy"><span>恭喜，续忆已经记下了你在 QQ 发来的消息。</span>'
+      + '<span>下次提起以前聊过的事，续忆能帮 DeepSeek 接上话。</span></p>'
+      + '<button class="btn" data-finish>看看 TA 的记忆</button>'
+      + '<p class="wiz-local-note">记忆保存在本机。到「TA的记忆」点「备份」，随时可以导出完整记忆。</p></div>'
+      + (manual ? later : '');
     box.querySelector('[data-finish]').onclick = () => { closeWizard(); showTab('memory'); };
   }
   box.querySelectorAll('[data-later]').forEach(b => { b.onclick = dismissWizard; });
