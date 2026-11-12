@@ -163,7 +163,7 @@ def main():
                 from .personas import list_personas, persona_status
                 from .board_bridge import DIARY_HOURS, diary_hour
                 from .carry import health
-                result={'persona':persona_status(args.profile),'presets':list_personas(),
+                result={'persona':persona_status(args.profile),'presets':list_personas(include_prompt=True),
                         'diary_hour':diary_hour(args.db),'diary_hours':list(DIARY_HOURS),
                         'health':health(store)}
             elif args.command=='diary-due':

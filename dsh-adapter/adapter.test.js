@@ -1112,6 +1112,62 @@ test('the guide renders a new QQ QR code even when prior chats and a persona are
   assert.equal(load({ phase: 'bound' }).next, 'done');
 });
 
+test('persona details preview without applying and save edits only when confirmed', async () => {
+  const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
+  const script = page.slice(page.indexOf('function personaBlock'), page.indexOf('function hourBlock'));
+  const prompt = '【你是谁】\n你是个喜欢收集明信片的朋友。';
+  const preset = { name: 'postcard', label: '明信片朋友', description: '喜欢旅行', systemPrompt: prompt };
+  const detail = { dataset: { detail: '0' }, setAttribute: (key, value) => { detail[key] = value; }, focus() {} };
+  const textarea = { focus() {} };
+  const elements = { textarea, label: {}, '[data-save-detail]': {}, '[data-close-detail]': {},
+    '[data-group]': { value: 'mention' }, '[data-own]': {} };
+  const editor = { hidden: true, querySelector: selector => elements[selector] };
+  const box = { querySelector: selector => selector === '.persona-editor' ? editor : elements[selector],
+    querySelectorAll: selector => selector === '[data-detail]' ? [detail] : [] };
+  const posts = [], notices = [];
+  let allowed = false, saved = 0;
+  const run = new Function('setupState', 'bindState', 'esc', 'say', 'setupPost', 'refreshSetup', 'box', 'onSaved',
+    script + 'personaBlock(box, "test", { onSaved });');
+  run({ qq: { installed: true }, persona: { name: preset.name }, presets: [preset] },
+    { phase: 'bound' }, String, (...args) => notices.push(args),
+    async (path, body) => {
+      posts.push([path, body]);
+      return allowed ? { ok: true, data: { applied: '明信片朋友' } } : { ok: false, data: { error: '测试保存失败' } };
+    }, async () => {}, box, () => { saved += 1; });
+  assert.match(box.innerHTML, /查看详情/);
+  detail.onclick();
+  assert.equal(editor.hidden, false);
+  assert.equal(textarea.value, prompt);
+  assert.equal(detail['aria-expanded'], 'true');
+  textarea.value = '还没保存的文字';
+  elements['[data-group]'].value = 'all';
+  elements['[data-group]'].onchange();
+  elements['[data-close-detail]'].onclick();
+  assert.equal(editor.hidden, true);
+  assert.equal(detail['aria-expanded'], 'false');
+  assert.deepEqual(posts, []);
+  detail.onclick();
+  assert.equal(textarea.value, prompt);
+  textarea.value = '  ';
+  await elements['[data-save-detail]'].onclick();
+  assert.deepEqual(posts, []);
+  const edited = prompt + '\n也喜欢散步。';
+  textarea.value = edited;
+  await elements['[data-save-detail]'].onclick();
+  assert.equal(editor.hidden, false);
+  assert.equal(textarea.value, edited);
+  assert.deepEqual(notices.at(-1), ['testDetail', '测试保存失败', true]);
+  assert.equal(saved, 0);
+  allowed = true;
+  await elements['[data-save-detail]'].onclick();
+  assert.deepEqual(posts.at(-1), ['setup/persona', { text: edited, groupReply: 'all' }]);
+  assert.equal(saved, 1);
+  elements['[data-close-detail]'].onclick();
+  detail.onclick();
+  await elements['[data-save-detail]'].onclick();
+  assert.deepEqual(posts.at(-1), ['setup/persona', { name: preset.name, groupReply: 'all' }]);
+});
+
 test('older hosts without a sidebar layout still get the diary as a header button', () => {
   const { mod, slotsOf } = loadClient();
   const registered = [];

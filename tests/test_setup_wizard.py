@@ -55,7 +55,7 @@ class PersonaSetupTests(unittest.TestCase):
         self.assertEqual(status["label"], "自定义人设")
         self.assertIn("阿桃", status["preview"])
 
-    def test_cli_setup_state_lists_presets_and_current_persona(self):
+    def test_cli_setup_state_lists_complete_presets_for_the_editor(self):
         env = {**os.environ, "PYTHONUTF8": "1"}
         db = str(self.profile / "m.sqlite")
         out = subprocess.run([sys.executable, "-m", "xuyi", "--db", db, "setup-state",
@@ -64,7 +64,10 @@ class PersonaSetupTests(unittest.TestCase):
         state = json.loads(out.stdout.decode("utf-8"))
         self.assertFalse(state["persona"]["configured"])
         self.assertGreaterEqual(len(state["presets"]), 5)
-        self.assertTrue(all({"name", "label", "description"} <= set(p) for p in state["presets"]))
+        for preset in state["presets"]:
+            with self.subTest(preset=preset["name"]):
+                self.assertEqual(preset["systemPrompt"], load_persona(preset["name"])["systemPrompt"])
+        self.assertNotIn("systemPrompt", state["persona"])
         applied = subprocess.run([sys.executable, "-m", "xuyi", "--db", db, "persona", "wenrou", "--apply",
                                   "--create", "--profile", str(self.profile)],
                                  capture_output=True, cwd=ROOT, env=env, timeout=60)

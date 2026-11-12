@@ -201,10 +201,17 @@ details.raw[open] summary::before { content: "▾ "; }
 .btn.ghost { color: var(--ink); background: transparent; border-color: var(--line); }
 .btn:disabled { opacity: .5; cursor: wait; }
 .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 6px 0 12px; }
-.preset { text-align: left; border: 1px solid var(--card-line); background: var(--page); border-radius: 10px; padding: 9px 12px;
+.preset { display: flex; flex-direction: column; align-items: flex-start; border: 1px solid var(--card-line);
+  background: var(--page); border-radius: 10px; padding: 9px 12px; }
+.preset-choice { flex: 1; width: 100%; padding: 0; border: 0; text-align: left; background: transparent;
   cursor: pointer; font: 13px/1.5 var(--sans); color: var(--ink-2); }
 .preset b { display: block; color: var(--ink); font-weight: 500; font-size: 14px; margin-bottom: 2px; }
 .preset.on { border-color: var(--center); box-shadow: inset 0 0 0 1px var(--center); }
+.preset-detail { margin-top: 6px; padding: 3px 9px; font-size: 12px; }
+.persona-editor { border: 1px solid var(--card-line); border-radius: 10px; padding: 12px; margin: 0 0 12px; }
+.persona-editor label { display: block; color: var(--ink); font-weight: 600; margin-bottom: 4px; }
+.persona-editor textarea { min-height: 12em; }
+.persona-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .own { width: 100%; min-height: 76px; resize: vertical; box-sizing: border-box; border: 1px solid var(--line); border-radius: 10px;
   padding: 9px 12px; font: 14px/1.6 var(--sans); color: var(--ink); background: var(--page); margin-bottom: 8px; }
 .say { font-size: 13px; color: var(--ink-2); min-height: 1.4em; margin-top: 6px; }
@@ -541,6 +548,7 @@ function watchNotes(scope, pending) {
 // ← → 翻页（← 更早，→ 更新）。
 document.addEventListener('keydown', event => {
   if (!diaryData || !currentDay || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+  if (event.target.closest?.('input, textarea, select, [contenteditable]')) return;
   const days = diaryData.days;
   const index = days.findIndex(day => day.date === currentDay);
   const target = days[index + (event.key === 'ArrowLeft' ? 1 : -1)];
@@ -585,8 +593,13 @@ function renderPrepare(p) {
 // 选TA的样子（人设 + 群里怎么回）：设置页和引导共用。
 function personaBlock(box, sayId, { kicker = '', onSaved } = {}) {
   const s = setupState;
-  const presets = (s.presets ?? []).map(p => `<button class="preset${s.persona?.name === p.name ? ' on' : ''}" data-name="${esc(p.name)}">`
-    + `<b>${esc(p.label)}</b>${esc(p.description)}</button>`).join('');
+  const choices = s.presets ?? [];
+  const editorId = `${sayId}Editor`, detailSayId = `${sayId}Detail`;
+  const presets = choices.map((p, i) => `<div class="preset${s.persona?.name === p.name ? ' on' : ''}">`
+    + `<button class="preset-choice" data-name="${esc(p.name)}"><b>${esc(p.label)}</b>${esc(p.description)}</button>`
+    + (typeof p.systemPrompt === 'string' && p.systemPrompt.trim()
+      ? `<button class="btn ghost preset-detail" data-detail="${i}" aria-label="查看${esc(p.label)}的详情" aria-expanded="false" aria-controls="${editorId}">查看详情</button>` : '')
+    + '</div>').join('');
   const saved = s.persona?.configured;
   const current = saved ? `已保存<b>${esc(s.persona.label)}</b>。`
     + (bindState?.phase === 'bound' ? '' : '绑定 QQ 后会使用这份人设。') : '';
@@ -594,31 +607,79 @@ function personaBlock(box, sayId, { kicker = '', onSaved } = {}) {
       : `<h3>TA的样子${saved ? '<span class="ok">✓ 已保存</span>' : ''}</h3>`)
     + `<p>${current}挑一个，或者自己写几句：TA叫什么、跟你什么关系、说话什么样。</p>`
     + `<div class="presets">${presets}</div>`
-    + '<textarea class="own" placeholder="也可以自己写：TA叫什么、和你什么关系、说话什么样……"></textarea>'
+    + `<div class="persona-editor" id="${editorId}" hidden>`
+    + `<label for="${editorId}Text"></label><p>可以直接修改。改过的内容会作为自定义人设使用，原预设会保留。</p>`
+    + `<textarea class="own" id="${editorId}Text" maxlength="4000"></textarea>`
+    + '<div class="persona-editor-actions"><button class="btn" data-save-detail>保存并使用</button>'
+    + '<button class="btn ghost" data-close-detail>取消</button></div>'
+    + `<div class="say" role="status" id="${detailSayId}"></div></div>`
+    + '<textarea class="own" data-own-text placeholder="也可以自己写：TA叫什么、和你什么关系、说话什么样……"></textarea>'
     + '<button class="btn ghost" data-own>用我写的</button>'
     + `<p style="margin-top:12px">群里：<select class="hour" data-group>`
     + `<option value="mention"${s.persona?.group_reply !== 'all' ? ' selected' : ''}>有人 @ TA才回</option>`
     + `<option value="all"${s.persona?.group_reply === 'all' ? ' selected' : ''}>每条都可能接话</option>`
-    + `</select></p><div class="say" id="${sayId}"></div>`;
+    + `</select></p><div class="say" role="status" id="${sayId}"></div>`;
   const group = box.querySelector('[data-group]');
-  const choose = async body => {
-    if (!setupState.qq?.installed) { say(sayId, '先装 QQ 插件。', true); return; }
-    say(sayId, '正在保存……');
-    const { ok, data } = await setupPost('setup/persona', { ...body, groupReply: group.value });
-    if (!ok) { say(sayId, data.error || '没保存上', true); return; }
-    await refreshSetup();
-    say(sayId, `好，换成「${data.applied}」了。在 QQ 里发一句 /new 就生效，不行就重启 DSH。`);
-    onSaved?.();
+  const editor = box.querySelector('.persona-editor');
+  const editorText = editor.querySelector('textarea');
+  const saveDetail = editor.querySelector('[data-save-detail]');
+  let active = null, saving = false;
+  const choose = async (body, statusId = sayId) => {
+    if (saving) return;
+    if (!setupState.qq?.installed) { say(statusId, '先装 QQ 插件。', true); return; }
+    saving = saveDetail.disabled = true;
+    try {
+      say(statusId, '正在保存……');
+      const { ok, data } = await setupPost('setup/persona', { ...body, groupReply: group.value });
+      if (!ok) { say(statusId, data.error || '没保存上', true); return; }
+      await refreshSetup();
+      if (!onSaved) personaBlock(box, sayId);
+      say(onSaved ? statusId : sayId, `好，换成「${data.applied}」了。在 QQ 里发一句 /new 就生效，不行就重启 DSH。`);
+      onSaved?.();
+    } finally {
+      saving = saveDetail.disabled = false;
+    }
   };
-  box.querySelectorAll('.preset').forEach(button => { button.onclick = () => choose({ name: button.dataset.name }); });
+  box.querySelectorAll('[data-name]').forEach(button => { button.onclick = () => choose({ name: button.dataset.name }); });
+  box.querySelectorAll('[data-detail]').forEach(button => {
+    button.onclick = () => {
+      if (saving) return;
+      if (active === button) { editorText.focus(); return; }
+      active?.setAttribute('aria-expanded', 'false');
+      active = button;
+      active.setAttribute('aria-expanded', 'true');
+      const preset = choices[button.dataset.detail];
+      editor.querySelector('label').textContent = `${preset.label} · 完整设定`;
+      editorText.value = preset.systemPrompt;
+      say(detailSayId, '');
+      editor.hidden = false;
+      editorText.focus();
+    };
+  });
+  editor.querySelector('[data-close-detail]').onclick = () => {
+    if (saving || !active) return;
+    editor.hidden = true;
+    editorText.value = '';
+    active.setAttribute('aria-expanded', 'false');
+    active.focus();
+    active = null;
+  };
+  saveDetail.onclick = () => {
+    if (!active) return;
+    const text = editorText.value.trim();
+    if (!text) { say(detailSayId, '人设内容不能为空。', true); editorText.focus(); return; }
+    const preset = choices[active.dataset.detail];
+    return choose(text === preset.systemPrompt.trim() ? { name: preset.name } : { text }, detailSayId);
+  };
   box.querySelector('[data-own]').onclick = () => {
-    const text = box.querySelector('.own').value.trim();
+    const text = box.querySelector('[data-own-text]').value.trim();
     if (!text) { say(sayId, '先写几句。', true); return; }
     choose({ text });
   };
   group.onchange = () => {
     // 现在用的是预设：按同一个预设重新保存（带上新的群聊设置）；自己写的要重新点「用我写的」。
-    if (setupState.persona?.name) choose({ name: setupState.persona.name });
+    if (active) say(detailSayId, '保存人设时会一起保存群聊设置。');
+    else if (setupState.persona?.name) choose({ name: setupState.persona.name });
     else say(sayId, '选人设的时候会一起存这项。');
   };
 }

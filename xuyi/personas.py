@@ -63,13 +63,15 @@ def compose_group_prompt(persona):
     return persona + "\n\n" + GROUP_STYLE
 
 
-def list_personas():
+def list_personas(*, include_prompt=False):
     out = []
     for path in sorted(ROOT.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
-        out.append({"name": data["name"], "label": data["label"],
-                    "description": data["description"],
-                    "prompt_chars": len(data["systemPrompt"])})
+        item = {"name": data["name"], "label": data["label"],
+                "description": data["description"], "prompt_chars": len(data["systemPrompt"])}
+        if include_prompt:
+            item["systemPrompt"] = data["systemPrompt"]
+        out.append(item)
     return out
 
 
