@@ -3,9 +3,9 @@
 [![npm](https://img.shields.io/npm/v/dsh-xuyi-memory)](https://www.npmjs.com/package/dsh-xuyi-memory)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-DeepSeek Harness（DSH）能把 DeepSeek 接到 QQ 上，变成一个陪你聊天的 QQ 好友。续忆是给她装的记忆。
+续忆是一个 DeepSeek Harness（DSH）插件，作用是给 QQ 陪伴助手加上长期记忆和日记本。DSH 能把 DeepSeek 接到 QQ 上，变成一个陪你聊天的 QQ 好友，续忆让这个好友记得住你说过的话。
 
-不装的话，开个新对话，或者聊久了，她就把你之前说的忘了。装上以后，你说过的话她会一直记着：上个月随口提了一句家里的猫，今天问起来，她还叫得出名字；你说奶茶戒了，她就不会再劝你来一杯。到了晚上，她还会把你们这一天写进日记里。
+不装的话，开个新对话，或者聊久了，她就把你之前说的忘了。装上续忆以后：上个月随口提了一句家里的猫，今天问起来，她还叫得出名字；你说奶茶戒了，她就不会再劝你来一杯。到了晚上，她还会把你们这一天写进日记里。
 
 ![事已至此，先吃饭吧](docs/images/eat.png)
 
