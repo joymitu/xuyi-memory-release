@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ADAPTER_FILES = ["index.js", "logic.js", "client.js", "rhythm.js", "cordis.patch.yml", "package.json",
                  "icon.png", "locale/zh.json", "locale/en.json"]
 REPO_URL = "https://github.com/joymitu/xuyi-memory-release"
+# README 里用到的图（都在 docs/images/ 下），打包时一起带上，npm 页面从 jsDelivr 取。
+README_IMAGES = ["eat.png", "diary.png", "memory.png"]
 
 
 def package_readme(version):
@@ -83,8 +85,8 @@ def stage(out=None):
     (out / "README.md").write_text(package_readme(version), encoding="utf-8", newline="\n")
     # README 里的示例截图（虚构数据，scripts/demo_screenshot.py 生成）。
     (out / "images").mkdir()
-    shutil.copyfile(ROOT / "docs/images/diary.png", out / "images/diary.png")
-    shutil.copyfile(ROOT / "docs/images/memory.png", out / "images/memory.png")
+    for image in README_IMAGES:
+        shutil.copyfile(ROOT / "docs/images" / image, out / "images" / image)
     py = out / "py"
     _copy_tree(ROOT / "xuyi", py / "xuyi")
     folder, license_text, version = _yaml_source()

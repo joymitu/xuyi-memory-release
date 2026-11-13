@@ -232,7 +232,7 @@ class PackageReadmeTests(unittest.TestCase):
             self.assertNotIn(b"\r", (out / "README.md").read_bytes())
         version = self.manifest["version"]
         images = [u for u in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text) if "img.shields.io" not in u]
-        self.assertEqual(len(images), 2)
+        self.assertEqual(len(images), 3)
         for url in images:
             self.assertTrue(url.startswith(f"https://cdn.jsdelivr.net/npm/dsh-xuyi-memory@{version}/images/"), url)
         for target in re.findall(r"\]\(([^)]+)\)", text):
@@ -244,10 +244,11 @@ class PackageReadmeTests(unittest.TestCase):
 
     def test_images_named_in_readme_are_shipped_in_the_package(self):
         import re
+        from pack_adapter import README_IMAGES
         repo = (ROOT / "README.md").read_text(encoding="utf-8")
         for name in re.findall(r"\]\(docs/images/([^)]+)\)", repo):
             self.assertTrue((ROOT / "docs/images" / name).is_file(), name)
-            self.assertIn(name, ("diary.png", "memory.png"))  # pack_adapter 只打包这两张
+            self.assertIn(name, README_IMAGES)  # 没列进去的图不会打进包，npm 页面上会是空的
 
     def test_readme_pins_the_current_version_for_the_cooldown_tip(self):
         text = (ROOT / "README.md").read_text(encoding="utf-8")
