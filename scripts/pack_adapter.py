@@ -15,8 +15,29 @@ from importlib import metadata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ADAPTER_FILES = ["index.js", "logic.js", "client.js", "rhythm.js", "cordis.patch.yml", "package.json", "README.md",
+ADAPTER_FILES = ["index.js", "logic.js", "client.js", "rhythm.js", "cordis.patch.yml", "package.json",
                  "icon.png", "locale/zh.json", "locale/en.json"]
+REPO_URL = "https://github.com/joymitu/xuyi-memory-release"
+
+
+def package_readme(version):
+    """npm 页面用的 README：就是仓库首页那份，只把相对路径换成绝对地址。
+
+    npm 不会从安装包里取图片，相对路径的图在 npm 页面上是空的；图片改用 jsDelivr 上
+    这个版本的包里的文件（国内也打得开）。LICENSE 和字体许可证的路径也按包里的位置改。
+    """
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    cdn = f"https://cdn.jsdelivr.net/npm/dsh-xuyi-memory@{version}/images/"
+    replacements = {
+        "](docs/images/": f"]({cdn}",
+        "](LICENSE)": f"]({REPO_URL}/blob/main/LICENSE)",
+        "`xuyi/fonts/OFL.txt`": "`py/xuyi/fonts/OFL.txt`",
+    }
+    for old, new in replacements.items():
+        if old not in text:
+            raise SystemExit(f"README 里找不到 {old}，打包前先核对 package_readme 的替换规则")
+        text = text.replace(old, new)
+    return text
 SKIP_DIRS = {"__pycache__"}
 SKIP_SUFFIXES = {".pyc", ".pyo", ".pyd", ".so", ".dylib"}
 
@@ -58,6 +79,8 @@ def stage(out=None):
         (out / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "dsh-adapter" / name, out / name)
     shutil.copyfile(ROOT / "LICENSE", out / "LICENSE")
+    version = json.loads((ROOT / "dsh-adapter/package.json").read_text(encoding="utf-8"))["version"]
+    (out / "README.md").write_text(package_readme(version), encoding="utf-8", newline="\n")
     # README 里的示例截图（虚构数据，scripts/demo_screenshot.py 生成）。
     (out / "images").mkdir()
     shutil.copyfile(ROOT / "docs/images/diary.png", out / "images/diary.png")

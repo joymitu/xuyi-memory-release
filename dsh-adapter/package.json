@@ -1,6 +1,6 @@
 {
   "name": "dsh-xuyi-memory",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "续忆 · 让 DeepSeek Harness 的 QQ 陪伴助手记得你说过的话，并写一本日记",
   "icon": "./icon.png",
   "type": "module",

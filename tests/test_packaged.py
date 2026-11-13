@@ -212,10 +212,46 @@ class PublicReadmeTests(unittest.TestCase):
 class PrivacyWordingTests(unittest.TestCase):
     def test_readmes_do_not_claim_nothing_leaves_the_computer(self):
         # 召回的原话、写日记用的当天聊天会交给用户配置的模型，不能写「不上传」。
-        for rel in ("README.md", "dsh-adapter/README.md"):
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            self.assertNotIn("不上传", text, rel)
-            self.assertIn("你配置的模型", text, rel)
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertNotIn("不上传", text)
+        self.assertIn("你配置的模型", text)
+
+
+class PackageReadmeTests(unittest.TestCase):
+    """npm 页面的 README 由仓库 README 生成：内容一致，图片和链接都是绝对地址。"""
+
+    def setUp(self):
+        self.manifest = json.loads((ROOT / "dsh-adapter/package.json").read_text(encoding="utf-8"))
+
+    def test_package_readme_is_the_repo_readme_with_absolute_links(self):
+        import re
+        from pack_adapter import stage
+        with tempfile.TemporaryDirectory() as tmp:
+            out = stage(Path(tmp) / "stage")
+            text = (out / "README.md").read_text(encoding="utf-8")
+            self.assertNotIn(b"\r", (out / "README.md").read_bytes())
+        version = self.manifest["version"]
+        images = [u for u in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text) if "img.shields.io" not in u]
+        self.assertEqual(len(images), 2)
+        for url in images:
+            self.assertTrue(url.startswith(f"https://cdn.jsdelivr.net/npm/dsh-xuyi-memory@{version}/images/"), url)
+        for target in re.findall(r"\]\(([^)]+)\)", text):
+            self.assertTrue(target.startswith("https://"), target)
+        self.assertIn("`py/xuyi/fonts/OFL.txt`", text)
+        # 除了这几处地址，正文和仓库 README 一模一样。
+        repo = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertEqual(len(text.splitlines()), len(repo.splitlines()))
+
+    def test_images_named_in_readme_are_shipped_in_the_package(self):
+        import re
+        repo = (ROOT / "README.md").read_text(encoding="utf-8")
+        for name in re.findall(r"\]\(docs/images/([^)]+)\)", repo):
+            self.assertTrue((ROOT / "docs/images" / name).is_file(), name)
+            self.assertIn(name, ("diary.png", "memory.png"))  # pack_adapter 只打包这两张
+
+    def test_readme_pins_the_current_version_for_the_cooldown_tip(self):
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn(f"dsh-xuyi-memory@{self.manifest['version']}", text)
 
 
 if __name__ == "__main__":
