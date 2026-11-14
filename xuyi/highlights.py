@@ -161,11 +161,20 @@ class _NameFamily:
         return {"属性": key if nickname else key + "名字", "值": value}, [source], replaced
 
 
+NOUNS_FOR_QUERY = ("饮料", "饮品", "食物", "零食", "水果", "游戏", "电影", "音乐", "歌", "书", "颜色",
+                   "运动", "花", "动物", "季节", "歌手", "明星", "城市", "菜", "电视剧", "剧", "动漫")
+
+
 class _PreferenceFamily:
     QUERY = re.compile(
         r"最(?:爱|喜欢|讨厌)(?:[^。？！?]*?)?(?:什么|啥)"
         r"|(?:爱|喜欢|讨厌)(?:[喝吃玩看听用穿去])(?:[^。？！?]{0,6})?(?:什么|啥)"
         r"|还(?:在|再)?(?:[喝吃玩用去])(?:[^。？！?]{0,8})?(?:吗|么)|戒了(?:吗|没有)"
+        # 「最喜欢的歌手是谁」「最喜欢哪个季节」「最喜欢的颜色是？」「还记得我最爱的水果吗」
+        r"|最(?:爱|喜欢|讨厌)[^。？！?，,]{0,8}?(?:是谁|是哪|哪(?:个|位|首|部|本|种|款|家|样|一))"
+        r"|最(?:爱|喜欢|讨厌)的[^。？！?，,]{1,6}是\s*[？?]"
+        r"|(?:记得|知道|猜猜?)[^。？！?，,]{0,4}最(?:爱|喜欢|讨厌)的?[^。？！?，,]{1,8}?(?:吗|么|没|不)"
+        r"|我(?:平时)?(?:爱|喜欢)(?:什么|啥|哪个|哪种)(?:" + "|".join(NOUNS_FOR_QUERY) + r")"
     )
     CLASS_OF = {"喝": "饮品", "饮料": "饮品", "饮品": "饮品",
                 "吃": "食物", "食物": "食物", "菜": "食物",
@@ -181,12 +190,21 @@ class _PreferenceFamily:
     CORRECTION = re.compile(r"^(?:请)?更正(?:一下)?[，,：:]?\s*|刚才?说错[了]?[，,：:]?\s*")
     PAST = re.compile(r"以前|曾经|原来|小时候|之前|上次")
     CAT = r"(?P<cat>[\u3400-\u9fffA-Za-z0-9※]{1,6})"
-    SUPER = re.compile(r"我最(?:爱|喜欢|讨厌)的?" + CAT + r"是" + VALUE + r"[。！!]?")
+    SUPER = re.compile(r"我最(?:爱|喜欢|讨厌)的?" + CAT + r"(?:就|也)?是" + VALUE + r"[。！!]?")
+    # 「芒果是我最爱的水果」
+    INVERT = re.compile(VALUE + r"(?:就|也)?是我最(?:爱|喜欢|讨厌)的" + CAT + r"了?[。！!]?")
+    # 「我最喜欢蓝色」：只有颜色能从值本身看出类别。
+    COLOR = re.compile(r"我最(?:爱|喜欢)(?P<value>[\u3400-\u9fff]{1,3}色)[。！!]?")
+    # 改写出来的「我最爱的※如今是草莓了」（不能用「现在」：PREFIX 会把它当口头禅删掉）：只在上一句喜好之后不久才算改口。
+    NOW = re.compile(r"我最(?:爱|喜欢)的※如今是" + VALUE + r"了[。！!]?")
+    NOW_WINDOW_SECONDS = 10 * 60
+    QUERY_CAT = re.compile(r"最(?:爱|喜欢|讨厌)(?:的|(?:什么|啥|哪个|哪位|哪首|哪部|哪本|哪种|哪款|哪家|哪一个))"
+                           r"(?P<cat>[\u3400-\u9fff]{1,6}?)(?:是|吗|么|呢|来着|啊|呀|[？?。，,]|$)")
     CHANGE = re.compile(r"我最(?:爱|喜欢|讨厌)的?" + CAT + r"(?:改|换)(?:成|为|到)" + VALUE + r"了?[。！!]?")
     VERB = re.compile(r"我最(?:爱|喜欢|讨厌)(?P<verb>[喝吃玩看听用穿去])" + VALUE + r"[。！!]?")
     NEGATE_VERB = re.compile(r"我(?:不再|不)(?P<verb>[喝吃玩看听用穿去])" + VALUE + r"了?[。！!]?")
     NEGATE_BARE = re.compile(r"我戒了" + VALUE + r"[。！!]?")
-    TRIM = "了的吧嘛呢啊呀哦嗯哈哟"
+    TRIM = "了的吧嘛呢啊呀哦嗯哈哟就"
 
     def highlight(self, peer, query, events, superseded):
         target = self._query_key(query)
@@ -247,17 +265,25 @@ class _PreferenceFamily:
     def _resolved(self, parsed):
         """(event, kind, key, rendered, correction); a ※ category means the one named most recently."""
         last = None
+        last_at = None
         seen = set()
         for event, kind, match, correction in parsed:
             key, rendered = self._record(kind, match)
             if not rendered or UNCERTAIN.search(rendered):
                 continue
+            if kind == "now":
+                moment = _by_event_time((event,))
+                if last is None or last_at is None \
+                        or not 0 <= (moment - last_at).total_seconds() <= self.NOW_WINDOW_SECONDS:
+                    continue   # 隔太久的「现在是X了」不知道在说什么，不当改口
+                kind = "change"
             if key == HOLE:
                 if last is None:
                     continue
                 key = last
             elif not isinstance(key, tuple):
                 last = key
+                last_at = _by_event_time((event,))
             if (id(event), key, rendered) in seen:
                 continue
             seen.add((id(event), key, rendered))
@@ -309,7 +335,19 @@ class _PreferenceFamily:
                     open_conflict = None
         return suspected
 
+    def _category(self, cat):
+        # "我最喜欢喝的改成…" 的类别是动词"喝"，不是名词"喝的"；「我最爱吃的水果」就是水果。
+        cat = cat.removesuffix("的").removesuffix("就").removesuffix("也")
+        if HOLE not in cat:
+            cat = re.sub(r"^[喝吃玩看听用穿去]的", "", cat) or cat
+        return self.CLASS_OF.get(cat, cat)
+
     def _query_key(self, query):
+        named = self.QUERY_CAT.search(query)
+        if named and named["cat"] not in ("什么", "啥"):
+            cat = re.sub(r"^[喝吃玩看听用穿去]", "", named["cat"]) or named["cat"]
+            if cat not in self.VERBS:
+                return self._category(cat)
         noun = next((n for n in self.NOUNS if n in query), None)
         verb = next((v for v in self.VERBS if v in query), None)
         return self.CLASS_OF.get(noun or verb) if (noun or verb) else None
@@ -320,7 +358,8 @@ class _PreferenceFamily:
         body = self.PREFIX.sub("", body, count=1)
         if self.PAST.search(body):
             return None
-        for kind, pattern in (("change", self.CHANGE), ("super", self.SUPER), ("verb", self.VERB),
+        for kind, pattern in (("now", self.NOW), ("change", self.CHANGE), ("super", self.SUPER),
+                              ("super", self.INVERT), ("color", self.COLOR), ("verb", self.VERB),
                               ("negate", self.NEGATE_VERB), ("negate", self.NEGATE_BARE)):
             match = pattern.fullmatch(body)
             if match:
@@ -328,11 +367,12 @@ class _PreferenceFamily:
         return None
 
     def _record(self, kind, match):
+        if kind == "now":
+            return HOLE, self._trim(match["value"])
+        if kind == "color":
+            return "颜色", self._trim(match["value"])
         if kind in ("super", "change"):
-            # "我最喜欢喝的改成…" 的类别是动词"喝"，不是名词"喝的"。
-            cat = match["cat"].removesuffix("的")
-            key = self.CLASS_OF.get(cat, cat)
-            return key, self._trim(match["value"])
+            return self._category(match["cat"]), self._trim(match["value"])
         if kind == "verb":
             return self.CLASS_OF[match["verb"]], self._trim(match["value"])
         verb = match.groupdict().get("verb")

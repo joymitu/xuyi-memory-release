@@ -44,6 +44,22 @@ HIGHLIGHT_SCHEMA = (
 )
 
 
+# 家族规则能读出的句式变了（新说法、新问法），旧索引里就缺行。规则一改就把这个数加一：
+# 版本对不上的索引算过期，召回回退全量扫描，下一次写入时整个重建一次。
+HIGHLIGHT_RULES = 2
+
+
+def _ensure_rules(store):
+    if not store.db.execute("SELECT 1 FROM sqlite_master WHERE name='highlight_rules'").fetchone():
+        store.db.execute("CREATE TABLE IF NOT EXISTS highlight_rules(scope TEXT PRIMARY KEY,version INTEGER NOT NULL)")
+
+
+def _rules_current(store, scope):
+    _ensure_rules(store)
+    row = store.db.execute("SELECT version FROM highlight_rules WHERE scope=?", (scope,)).fetchone()
+    return bool(row and row[0] == HIGHLIGHT_RULES)
+
+
 def _ensure_highlight(store):
     # Added after chunk_index existed: older archives get it lazily, and it stays
     # stale (full-scan fallback) until a rebuild/reindex fills it.
@@ -113,7 +129,7 @@ def _index_forget(store, scope, events, rebuilt):
 def highlight_fresh(store, scope):
     _ensure_highlight(store)
     row = store.db.execute("SELECT max_seq FROM highlight_stats WHERE scope=?", (scope,)).fetchone()
-    return bool(row and row[0] >= 0 and row[0] == _max_seq(store, scope))
+    return bool(row and row[0] >= 0 and row[0] == _max_seq(store, scope)) and _rules_current(store, scope)
 
 
 def highlight_events(store, scope):
@@ -137,6 +153,8 @@ def _index_highlights(store, scope, events, rebuilt):
             seqs[event_id] = row[0]
     newest = _max_seq(store, scope)
     if not rebuilt:
+        if not _rules_current(store, scope):
+            return   # 旧规则建的索引：保持过期，由 update() 整个重建
         # Append-only: only stay fresh if nothing was missed before this batch.
         first = min((row[0] for row in (store.db.execute(
             "SELECT seq FROM events WHERE scope=? AND event_id=?", (scope, event["event_id"])).fetchone()
@@ -150,6 +168,29 @@ def _index_highlights(store, scope, events, rebuilt):
                          [(scope, seq) for seq in seqs.values()])
     store.db.execute("INSERT INTO highlight_stats(scope,max_seq) VALUES(?,?) "
                      "ON CONFLICT(scope) DO UPDATE SET max_seq=excluded.max_seq", (scope, newest))
+    if rebuilt:
+        _ensure_rules(store)
+        store.db.execute("INSERT INTO highlight_rules(scope,version) VALUES(?,?) "
+                         "ON CONFLICT(scope) DO UPDATE SET version=excluded.version", (scope, HIGHLIGHT_RULES))
+
+
+def _heal(store, scope):
+    """写入时顺手修好过期的重点索引和「别记了」清单（老档案、规则升级、删过消息）。
+
+    只在写入路径上做：10 万句约 2 秒，一次之后就是增量。召回路径永远不重建。
+    """
+    highlight_ok = highlight_fresh(store, scope)
+    forget_ok = forget_seqs(store, scope) is not None
+    if highlight_ok and forget_ok:
+        return
+    events = store.events(scope)
+    with _write(store):
+        if not highlight_ok:
+            store.db.execute("DELETE FROM highlight_lines WHERE scope=?", (scope,))
+            _index_highlights(store, scope, events, rebuilt=True)
+        if not forget_ok:
+            store.db.execute("DELETE FROM forget_lines WHERE scope=?", (scope,))
+            _index_forget(store, scope, events, rebuilt=True)
 
 
 def _present(store):
@@ -316,6 +357,7 @@ def update(store, scope, events):
         with _write(store):
             _index_highlights(store, scope, fresh_events, rebuilt=False)
             _index_forget(store, scope, fresh_events, rebuilt=False)
+    _heal(store, scope)
 
 
 def ranked_positions(store, scope, query):

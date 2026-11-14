@@ -43,6 +43,15 @@ TOPIC_NEG = re.compile(r"^" + LAZY + r"我?(戒了|不([" + VERBS + r"])了)$")
 NEG = re.compile(r"^我?(?:最近|现在)?不(?:爱|再)?([" + VERBS + "])" + VALUE + "了$")
 SWITCH = re.compile(r"^(?:现在|最近|以后)?(?:改|换)(?:成|为)?([" + VERBS + "])?" + VALUE + "了?$")
 FAVOURITE_NOW = re.compile(r"^(?:现在)?(?:最爱|最喜欢)的是" + VALUE + "了?$")
+# 只说「现在是草莓了」：没有「最爱」也没有「改成」。只当作刚聊过的那个类别的改口，
+# 由家族限定在上一句喜好之后不久；时间、季节、状态这类词一律不算（「现在是下午了」）。
+NOW_IS = re.compile(r"^(?:但是?|可是|不过)?(?:现在|如今|这阵子)(?:是|变成|成了|换成|改成)了?" + LAZY + r"了$")
+NOT_A_TASTE = re.compile(r"\d|[点时分秒天周月年号岁春夏秋冬]|早上|上午|中午|下午|傍晚|晚上|凌晨|半夜|白天"
+                         r"|[班课假期职业身婚级楼层岁生员师长]|阶段|状态|时候|时间|几")
+# 「我以前最爱吃芒果，现在是草莓了」：一句话里把旧的和新的都说了，本身就是改口。
+THEN_NOW = re.compile(r"^我?(?:以前|之前|原来)(?:最爱|最喜欢)(?P<verb>[" + VERBS + r"])?(?:的(?P<cat>[㐀-鿿]{1,6}?)是|是)?"
+                      r"(?P<old>[㐀-鿿A-Za-z0-9·_-]{1,12}?)[，,]?(?:但是?|可是|不过)?(?:现在|如今)"
+                      r"(?:是|变成|成了|换成|改成|改|换)?了?(?P<verb2>[" + VERBS + r"])?(?P<new>[㐀-鿿A-Za-z0-9·_-]{1,12}?)了?[。！!～~]*$")
 PREFER_NOW = re.compile(r"^(?:现在)?更(?:爱|喜欢)" + LAZY + r"(?:一点|一些)?了?$")
 WHO = r"([㐀-鿿A-Za-z]{1,4}?)"
 ACTION = r"(?=约好|约了|一起|去|开会|吃饭|聚餐|聚|打|逛|看|见|碰|钓|爬|玩|喝|吃|唱|出去|$)"
@@ -101,6 +110,8 @@ def _rewrite(clause, context):
         return f"我最爱的{HOLE}改成{match[1]}了。"
     if match := PREFER_NOW.fullmatch(clause):
         return f"我最喜欢的{HOLE}改成{match[1]}了。"
+    if (match := NOW_IS.fullmatch(clause)) and not NOT_A_TASTE.search(match[1]):
+        return f"我最爱的{HOLE}如今是{match[1]}了。"
     if not context["tentative"]:
         if match := MEET_TIME_FIRST.match(clause):
             return f"我约好{match[1]}见{match[2]}。"
@@ -119,6 +130,14 @@ def variants(text):
     ("……，超级粘人") no longer hides a statement.
     """
     text = text.strip()
+    if (match := THEN_NOW.fullmatch(text)) and match["old"] != match["new"] \
+            and not QUESTION.search(text) and not OTHERS.search(text):
+        verb = match["verb"] or match["verb2"]
+        if match["cat"]:
+            return [text, f"我最爱的{match['cat']}改成{match['new']}了。"]
+        if verb:
+            return [text, f"我最喜欢{verb}的改成{match['new']}了。"]
+        return [text, f"我最爱的{HOLE}改成{match['new']}了。"]
     if not text or QUESTION.search(text) or OTHERS.search(text) or HYPOTHETICAL.search(text) \
             or PAST.search(text):
         return [text]

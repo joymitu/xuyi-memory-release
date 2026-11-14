@@ -184,7 +184,9 @@ class HighlightIndexTests(unittest.TestCase):
                'recorded_at': '2026-11-02T00:00:00+08:00', 'text': '我最喜欢喝奶茶。'}
         store.add(row)
         index.update(store, scope, [row])
-        self.assertFalse(index.highlight_fresh(store, scope))  # 增量不能把缺了历史的索引标成新鲜
+        # 增量不能只追加就把缺了历史的索引标成新鲜；1.0.2 起写入时整个重建，重建后与全量一致。
+        self.assertTrue(index.highlight_fresh(store, scope))
+        self.assert_parity(store, scope)
         index.rebuild(store, scope)
         self.assert_parity(store, scope)
         store.forget(scope, 'dsh:s:1')

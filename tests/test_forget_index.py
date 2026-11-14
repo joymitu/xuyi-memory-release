@@ -79,8 +79,10 @@ class ForgetIndexTests(unittest.TestCase):
         later = row(101, '今天好热')
         self.store.add(later)
         index.update(self.store, SCOPE, [later])
-        self.assertIsNone(index.forget_seqs(self.store, SCOPE))
+        # 只追加会漏掉 100；写入时发现断档就整个重建，清单里必须有它。
+        self.assertIsNotNone(index.forget_seqs(self.store, SCOPE))
         self.assertIn('dsh:f:100', said_forget_ids(self.store, SCOPE))
+        self.assertEqual(said_forget_ids(self.store, SCOPE), full_scan(self.store))
 
     def test_deleting_the_request_brings_the_line_back(self):
         fill(self.store)
