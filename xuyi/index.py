@@ -46,7 +46,7 @@ HIGHLIGHT_SCHEMA = (
 
 # 家族规则能读出的句式变了（新说法、新问法），旧索引里就缺行。规则一改就把这个数加一：
 # 版本对不上的索引算过期，召回回退全量扫描，下一次写入时整个重建一次。
-HIGHLIGHT_RULES = 2
+HIGHLIGHT_RULES = 3
 
 
 def _ensure_rules(store):

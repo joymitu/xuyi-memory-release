@@ -281,7 +281,7 @@ class _PreferenceFamily:
                 if last is None:
                     continue
                 key = last
-            elif not isinstance(key, tuple):
+            elif not isinstance(key, tuple) and not key.startswith(self.HATE):
                 last = key
                 last_at = _by_event_time((event,))
             if (id(event), key, rendered) in seen:
@@ -335,6 +335,11 @@ class _PreferenceFamily:
                     open_conflict = None
         return suspected
 
+    HATE = "讨厌:"
+
+    def _hated(self, match):
+        return "讨厌" in match.group(0)
+
     def _category(self, cat):
         # "我最喜欢喝的改成…" 的类别是动词"喝"，不是名词"喝的"；「我最爱吃的水果」就是水果。
         cat = cat.removesuffix("的").removesuffix("就").removesuffix("也")
@@ -343,6 +348,10 @@ class _PreferenceFamily:
         return self.CLASS_OF.get(cat, cat)
 
     def _query_key(self, query):
+        key = self._liked_key(query)
+        return self.HATE + key if key is not None and "讨厌" in query else key
+
+    def _liked_key(self, query):
         named = self.QUERY_CAT.search(query)
         if named and named["cat"] not in ("什么", "啥"):
             cat = re.sub(r"^[喝吃玩看听用穿去]", "", named["cat"]) or named["cat"]
@@ -372,9 +381,11 @@ class _PreferenceFamily:
         if kind == "color":
             return "颜色", self._trim(match["value"])
         if kind in ("super", "change"):
-            return self._category(match["cat"]), self._trim(match["value"])
+            key = self._category(match["cat"])
+            return (self.HATE + key if self._hated(match) and key != HOLE else key), self._trim(match["value"])
         if kind == "verb":
-            return self.CLASS_OF[match["verb"]], self._trim(match["value"])
+            key = self.CLASS_OF[match["verb"]]
+            return (self.HATE + key if self._hated(match) else key), self._trim(match["value"])
         verb = match.groupdict().get("verb")
         if verb:
             return self.CLASS_OF[verb], "不再" + verb + self._trim(match["value"])
@@ -384,6 +395,8 @@ class _PreferenceFamily:
     def _label(self, key):
         if isinstance(key, tuple):
             return "已戒"
+        if key.startswith(self.HATE):
+            return "最讨厌的" + key.removeprefix(self.HATE)
         return "最喜欢的" + key
 
     def _trim(self, value):
@@ -768,6 +781,20 @@ FAMILIES = (_NameFamily(), _PreferenceFamily(), _AppointmentFamily(), _OpenLoopF
             _EmotionFamily(), _DietFamily())
 
 
+# 问的是谁：看问题里关键动作（最喜欢/安排/能吃/心情…）前面最近的那个人称。
+# 「你最喜欢什么颜色」问的是她自己，「我妈最喜欢…」问的是别人，都不能拿用户的记忆当答案；
+# 「你还记得我最爱的…」「你猜我最喜欢…」最近的人称是「我」，照常。称呼家族自己分得清，不走这条。
+SUBJECT = re.compile(r"我|你|您|他|她|妈|爸|哥|姐|弟|妹|男朋友|女朋友|男票|女票|老公|老婆|对象|朋友|同事|同学|室友|老板")
+ANCHOR = re.compile(r"最|喜欢|爱|讨厌|还(?:在|再)?[喝吃玩用去]|戒|有什么|有啥|安排|计划|打算|约|能|可以|过敏|忌口|心情|感觉")
+
+
+def _asks_someone_else(query, family):
+    anchor = ANCHOR.search(query)
+    before = query[:anchor.start()] if anchor else query[:family.QUERY.search(query).start()]
+    subjects = SUBJECT.findall(before)
+    return bool(subjects) and subjects[-1] != "我"
+
+
 def current_highlight(scope, query, events):
     """Return at most one relevant candidate, its sources, and replaced source IDs."""
     if not query.strip() or not scope.startswith("qq:c2c:") or HISTORY_QUERY.search(query) \
@@ -782,6 +809,8 @@ def current_highlight(scope, query, events):
         # "我最喜欢吃什么" is a taste question; only explicit diet words make it a diet one.
         matched = [diet] if diet.STRONG.search(query) else [family for family in matched if family is not diet]
     if len(matched) != 1:
+        return None
+    if matched[0] is not FAMILIES[0] and _asks_someone_else(query, matched[0]):
         return None
     superseded = {event["supersedes"] for event in events if "supersedes" in event}
     return matched[0].highlight(peer, query, events, superseded)

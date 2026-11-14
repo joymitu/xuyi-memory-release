@@ -740,7 +740,10 @@ class Retriever:
                 if fits(render_line(evidence[0])):
                     selected.append(first)
                     for extra in evidence[1:]:
-                        if not fits(render_line(extra)):break
+                        line = render_line(extra)
+                        if _moment_key(extra) < _moment_key(evidence[0]):
+                            line += '｜之后有更新的说法，以新的为准'
+                        if not fits(line):break
                         selected.append(extra)
                     omitted = set(replaced) | {event['event_id'] for event in source_events}
         if highlight_only:

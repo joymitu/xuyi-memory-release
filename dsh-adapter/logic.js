@@ -18,8 +18,14 @@ const snapshotBudget = 800;
 // Keep in sync with the family QUERY regexes in xuyi/highlights.py: name, preference, appointment.
 // Diet (allergies/restrictions) fires on any eating or drinking turn; mirrors _DietFamily.QUERY.
 const dietQuestion = /过敏|忌口|(?:能|可以)不?(?:能)?(?:吃|喝)|不能(?:吃|喝)|(?:吃|喝)(?:点|些)?(?:什么|啥)|推荐.{0,6}(?:吃|喝|菜|外卖|餐|饭|零食|水果|甜品)|外卖|(?:早|午|晚)(?:饭|餐)|早点|夜宵|做(?:什么|啥)菜/;
-const memoryQuestion = /叫(?:我)?(?:什么|啥|哪个)|(?:名字|昵称|称呼)(?:是)?(?:什么|啥|哪个)|记得.*(?:名字|昵称|称呼)|(?:怎么|如何)(?:叫|称呼)我|最(?:爱|喜欢|讨厌)(?:[^。？！?]*?)?(?:什么|啥)|(?:爱|喜欢|讨厌)(?:[喝吃玩看听用穿去])(?:[^。？！?]{0,6})?(?:什么|啥)|还(?:在|再)?(?:[喝吃玩用去])(?:[^。？！?]{0,8})?(?:吗|么)|戒了(?:吗|没有)|(?:有什么|啥)(?:约定|安排|计划)|(?:约定|安排|赴约|约会|邀约|见面|碰面)(?:[^。？！?]{0,12})?(?:吗|么|啥|什么|哪)|还(?:要|得)?(?:去|见|来)(?:不)?(?:吗|么)|见不见|去不去|(?:最近|接下来)?(?:有什么|啥)(?:打算|计划)|(?:要|想|打算|准备)(?:做|干|办)的?什么(?:来着)?|准备得?(?:怎么样|如何|咋样)|我(?:今天|昨天|这几天|最近)?(?:心情|感觉)(?:怎么样|如何|咋样)|我(?:开不开心|难不难过|累不累|烦不烦)|你还?记得我(?:今天|昨天)?(?:心情|感觉|状态)吗/;
+const memoryQuestion = /叫(?:我)?(?:什么|啥|哪个)|(?:名字|昵称|称呼)(?:是)?(?:什么|啥|哪个)|记得.*(?:名字|昵称|称呼)|(?:怎么|如何)(?:叫|称呼)我|最(?:爱|喜欢|讨厌)(?:[^。？！?]*?)?(?:什么|啥)|(?:爱|喜欢|讨厌)(?:[喝吃玩看听用穿去])(?:[^。？！?]{0,6})?(?:什么|啥)|还(?:在|再)?(?:[喝吃玩用去])(?:[^。？！?]{0,8})?(?:吗|么)|戒了(?:吗|没有)|(?:有什么|啥)(?:约定|安排|计划)|(?:约定|安排|赴约|约会|邀约|见面|碰面)(?:[^。？！?]{0,12})?(?:吗|么|啥|什么|哪)|还(?:要|得)?(?:去|见|来)(?:不)?(?:吗|么)|见不见|去不去|(?:最近|接下来)?(?:有什么|啥)(?:打算|计划)|(?:要|想|打算|准备)(?:做|干|办)的?什么(?:来着)?|准备得?(?:怎么样|如何|咋样)|我(?:今天|昨天|这几天|最近)?(?:心情|感觉)(?:怎么样|如何|咋样)|我(?:开不开心|难不难过|累不累|烦不烦)|你还?记得我(?:今天|昨天)?(?:心情|感觉|状态)吗|最(?:爱|喜欢|讨厌)[^。？！?，,]{0,8}?(?:是谁|是哪|哪(?:个|位|首|部|本|种|款|家|样|一))|最(?:爱|喜欢|讨厌)的[^。？！?，,]{1,6}是\s*[？?]|(?:记得|知道|猜猜?)[^。？！?，,]{0,4}最(?:爱|喜欢|讨厌)的?[^。？！?，,]{1,8}?(?:吗|么|没|不)|我(?:平时)?(?:爱|喜欢)(?:什么|啥|哪个|哪种)(?:饮料|饮品|食物|零食|水果|游戏|电影|音乐|歌|书|颜色|运动|花|动物|季节|歌手|明星|城市|菜|电视剧|剧|动漫)/;
 const nameChange = /别叫|不要叫|改叫|改名|取个名字|起个名字/;
+
+// 和 Python 侧家族问句（xuyi/highlights.py 各 QUERY）要一起改：这里不放行，自动召回就不会发生。
+// tests/fixtures/memory_questions.json 两边共用，Node 和 Python 测试都会检查。
+export function isMemoryQuestion(text) {
+  return memoryQuestion.test(text) || dietQuestion.test(text);
+}
 
 function userText(message, acceptAny = false) {
   if (message?.role !== 'user' || message.source?.kind !== 'user'
@@ -29,7 +35,7 @@ function userText(message, acceptAny = false) {
   const query = raw.trim();
   if (Array.from(query).length > 120 || nameChange.test(query)) return '';
   return acceptAny ? query
-    : (memoryQuestion.test(query) || dietQuestion.test(query) ? query : '');
+    : (isMemoryQuestion(query) ? query : '');
 }
 
 // How many chat bubbles to send this turn. Language models are poor dice: left alone they settle on
