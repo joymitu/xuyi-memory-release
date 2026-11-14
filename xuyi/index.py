@@ -52,6 +52,64 @@ def _ensure_highlight(store):
             store.db.execute(statement)
 
 
+# 「别记了 / 忘掉吧」这类原话的位置。召回每次都要知道哪些话被要求忘掉，
+# 10 万句时全表模糊匹配要 170 毫秒；入库时顺手记下来，召回只看这几行。
+FORGET_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS forget_lines(scope TEXT NOT NULL,seq INTEGER NOT NULL,"
+    "PRIMARY KEY(scope,seq)) WITHOUT ROWID",
+    "CREATE TABLE IF NOT EXISTS forget_stats(scope TEXT PRIMARY KEY,max_seq INTEGER NOT NULL)",
+)
+
+
+def _ensure_forget(store):
+    if not store.db.execute("SELECT 1 FROM sqlite_master WHERE name='forget_stats'").fetchone():
+        for statement in FORGET_SCHEMA:
+            store.db.execute(statement)
+
+
+def forget_seqs(store, scope):
+    """Seqs of user lines asking to forget, in archive order; None when the list is stale."""
+    _ensure_forget(store)
+    row = store.db.execute("SELECT max_seq FROM forget_stats WHERE scope=?", (scope,)).fetchone()
+    if not (row and row[0] >= 0 and row[0] == _max_seq(store, scope)):
+        return None
+    return [seq for (seq,) in store.db.execute(
+        "SELECT seq FROM forget_lines WHERE scope=? ORDER BY seq", (scope,))]
+
+
+def remember_forget_seqs(store, scope, seqs, max_seq):
+    """Store a full-scan result so the next recall skips the scan (old archives heal on first use)."""
+    with _write(store):
+        _ensure_forget(store)
+        store.db.execute("DELETE FROM forget_lines WHERE scope=?", (scope,))
+        store.db.executemany("INSERT OR IGNORE INTO forget_lines(scope,seq) VALUES(?,?)",
+                             [(scope, seq) for seq in seqs])
+        store.db.execute("INSERT INTO forget_stats(scope,max_seq) VALUES(?,?) "
+                         "ON CONFLICT(scope) DO UPDATE SET max_seq=excluded.max_seq", (scope, max_seq))
+
+
+def _index_forget(store, scope, events, rebuilt):
+    from .strength import is_forget_request
+    _ensure_forget(store)
+    newest = _max_seq(store, scope)
+    if not rebuilt:
+        stats = store.db.execute("SELECT max_seq FROM forget_stats WHERE scope=?", (scope,)).fetchone()
+        first = store.db.execute("SELECT seq FROM events WHERE scope=? AND event_id=?",
+                                 (scope, events[0]["event_id"])).fetchone() if events else None
+        before = store.db.execute("SELECT MAX(seq) FROM events WHERE scope=? AND seq<?",
+                                  (scope, first[0] if first else newest + 1)).fetchone()[0] or 0
+        if (stats[0] if stats else 0) != before:
+            return   # 中间漏过一批：保持过期，下次召回全量扫一遍再补上
+    for event in events:
+        if is_forget_request(event):
+            row = store.db.execute("SELECT seq FROM events WHERE scope=? AND event_id=?",
+                                   (scope, event["event_id"])).fetchone()
+            if row:
+                store.db.execute("INSERT OR IGNORE INTO forget_lines(scope,seq) VALUES(?,?)", (scope, row[0]))
+    store.db.execute("INSERT INTO forget_stats(scope,max_seq) VALUES(?,?) "
+                     "ON CONFLICT(scope) DO UPDATE SET max_seq=excluded.max_seq", (scope, newest))
+
+
 def highlight_fresh(store, scope):
     _ensure_highlight(store)
     row = store.db.execute("SELECT max_seq FROM highlight_stats WHERE scope=?", (scope,)).fetchone()
@@ -167,6 +225,10 @@ def invalidate(store, scope):
         store.db.execute(
             "INSERT INTO highlight_stats(scope,max_seq) VALUES(?,-1) "
             "ON CONFLICT(scope) DO UPDATE SET max_seq=-1", (scope,))
+        _ensure_forget(store)
+        store.db.execute(
+            "INSERT INTO forget_stats(scope,max_seq) VALUES(?,-1) "
+            "ON CONFLICT(scope) DO UPDATE SET max_seq=-1", (scope,))
 
 
 def forget(store, scope, event_id):
@@ -194,9 +256,13 @@ def rebuild(store, scope):
         _ensure_highlight(store)
         store.db.execute("DELETE FROM highlight_lines WHERE scope=?", (scope,))
         store.db.execute("DELETE FROM highlight_stats WHERE scope=?", (scope,))
+        _ensure_forget(store)
+        store.db.execute("DELETE FROM forget_lines WHERE scope=?", (scope,))
+        store.db.execute("DELETE FROM forget_stats WHERE scope=?", (scope,))
     _insert(store, scope, events)
     with _write(store):
         _index_highlights(store, scope, events, rebuilt=True)
+        _index_forget(store, scope, events, rebuilt=True)
 
 
 def _insert(store, scope, events):
@@ -249,6 +315,7 @@ def update(store, scope, events):
         _insert(store, scope, fresh_events)
         with _write(store):
             _index_highlights(store, scope, fresh_events, rebuilt=False)
+            _index_forget(store, scope, fresh_events, rebuilt=False)
 
 
 def ranked_positions(store, scope, query):

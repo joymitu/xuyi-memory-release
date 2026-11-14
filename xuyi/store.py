@@ -67,6 +67,7 @@ class Store:
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL,
                 event_id TEXT NOT NULL, payload TEXT NOT NULL, hash TEXT NOT NULL,
                 UNIQUE(scope,event_id));
+            CREATE INDEX IF NOT EXISTS events_by_scope_seq ON events(scope,seq);
             CREATE TABLE IF NOT EXISTS tombstones(
                 scope TEXT NOT NULL,event_id TEXT NOT NULL,deleted_at TEXT NOT NULL,
                 PRIMARY KEY(scope,event_id));

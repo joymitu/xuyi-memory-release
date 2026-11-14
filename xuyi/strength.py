@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 SCOPE_PREFIX = "qq:c2c:"
@@ -322,24 +323,32 @@ def forgotten_ids(store, scope):
     return said_forget_ids(store, scope) | wrong_ids(store, scope)
 
 
+def is_forget_request(event):
+    return event.get('role') == 'user' and bool(FORGET_REQUEST.search(event.get('text') or ''))
+
+
 def said_forget_ids(store, scope):
     """用户在聊天里说「别记了 / 忘掉吧」要忘掉的原话。"""
-    import json
-    rows = store.db.execute(
-        "SELECT seq, payload FROM events WHERE scope=? AND (payload LIKE '%别记%' OR payload LIKE '%不要记%'"
-        " OR payload LIKE '%不用记%' OR payload LIKE '%忘%' OR payload LIKE '%当我没说%') ORDER BY seq",
-        (scope,)).fetchall()
-    hidden = set()
-    for seq, payload in rows:
+    from . import index
+    seqs = index.forget_seqs(store, scope)
+    if seqs is None:
+        # 老档案或索引过期：全量扫一遍，并把结果记下来，下次召回就不用再扫。
+        newest = index._max_seq(store, scope)
+        rows = _requests(store.db.execute(
+            "SELECT seq, payload FROM events WHERE scope=? AND seq<=? AND (payload LIKE '%别记%'"
+            " OR payload LIKE '%不要记%' OR payload LIKE '%不用记%' OR payload LIKE '%忘%'"
+            " OR payload LIKE '%当我没说%') ORDER BY seq", (scope, newest)))
         try:
-            event = json.loads(payload)
-        except ValueError:
-            continue
-        text = event.get('text') or ''
-        if event.get('role') != 'user' or not FORGET_REQUEST.search(text):
-            continue
+            index.remember_forget_seqs(store, scope, [seq for seq, _ in rows], newest)
+        except Exception:
+            pass   # 只读打开或被锁：这次照常返回，下次再记
+    else:
+        rows = _requests(row for seq in seqs for row in store.db.execute(
+            "SELECT seq, payload FROM events WHERE seq=? AND scope=?", (seq, scope)))
+    hidden = set()
+    for seq, event in rows:
         hidden.add(event['event_id'])
-        if _forget_standalone(text):
+        if _forget_standalone(event.get('text') or ''):
             for (earlier,) in store.db.execute(
                     "SELECT payload FROM events WHERE scope=? AND seq<? ORDER BY seq DESC LIMIT 6", (scope, seq)):
                 previous = json.loads(earlier)
@@ -347,6 +356,18 @@ def said_forget_ids(store, scope):
                     hidden.add(previous['event_id'])
                     break
     return hidden
+
+
+def _requests(rows):
+    found = []
+    for seq, payload in rows:
+        try:
+            event = json.loads(payload)
+        except ValueError:
+            continue
+        if is_forget_request(event):
+            found.append((seq, event))
+    return found
 
 
 FUZZY_BELOW = 0.15      # 检索里加「记不太清」：强度低于此值……
