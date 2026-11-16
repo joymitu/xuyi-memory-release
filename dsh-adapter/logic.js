@@ -35,6 +35,13 @@ export function isAboutMe(text) {
   return (aboutMeQuestion.test(text) && !notAboutMe.test(text)) || howIsIt.test(text);
 }
 
+// 问她自己的喜好（「你最喜欢什么零食」「你爱听谁的歌」）：带上她以前对同一问题的回答，前后说法一致。
+const asksHerTaste = /你(?:最|平时|一般|自己)?(?:喜欢|爱|讨厌|爱吃|爱喝|爱看|爱听|爱玩)[^。！!？?你]{0,10}?(?:什么|啥|哪|谁|干嘛|干啥|吗|么|呢|没)|你最(?:爱|喜欢|讨厌)的[^。！!？?]{1,8}是/;
+
+export function isAboutHer(text) {
+  return asksHerTaste.test(text) && !/我最|我(?:喜欢|爱)/.test(text);
+}
+
 export function isMemoryQuestion(text) {
   return memoryQuestion.test(text) || dietQuestion.test(text);
 }
@@ -47,7 +54,7 @@ function userText(message, acceptAny = false) {
   const query = raw.trim();
   if (Array.from(query).length > 120 || nameChange.test(query)) return '';
   return acceptAny ? query
-    : (isMemoryQuestion(query) || isAboutMe(query) ? query : '');
+    : (isMemoryQuestion(query) || isAboutMe(query) || isAboutHer(query) ? query : '');
 }
 
 // How many chat bubbles to send this turn. Language models are poor dice: left alone they settle on
@@ -1074,7 +1081,7 @@ export function create(ctx, config = {}, host) {
       const args = query
         ? ['recall', scope, '--highlight-only', '--budget', String(autoBudget),
            ...(config.autoRelated === true ? ['--related'] : []),
-           ...(isAboutMe(query) ? ['--about-me'] : []), '--', query]
+           ...(isAboutMe(query) ? ['--about-me'] : []), ...(isAboutHer(query) ? ['--her'] : []), '--', query]
         : ['snapshot', scope, '--budget', String(snapshotBudget), '--session', String(sessionId)];
       const budget = query ? autoBudget : snapshotBudget;
       const result = await callCore(runtime, dbPath, args, undefined, lookupSignal);

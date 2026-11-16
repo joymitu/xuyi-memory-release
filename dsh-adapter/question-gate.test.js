@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isAboutMe, isMemoryQuestion } from './logic.js';
+import { isAboutHer, isAboutMe, isMemoryQuestion } from './logic.js';
 
 const fixture = join(dirname(dirname(fileURLToPath(import.meta.url))), 'tests', 'fixtures', 'memory_questions.json');
 
@@ -49,5 +49,14 @@ test('opinion questions, small talk and "what did I just say" do not trigger abo
   }
   for (const text of ['我在哪上班来着？', '我的车怎么了？', '我膝盖怎么了？']) {
     assert.equal(isAboutMe(text), true, text);
+  }
+});
+
+test('questions about her own taste pass the about-her gate; questions about mine do not', () => {
+  for (const text of ['你最喜欢什么零食？', '你爱听谁的歌', '你最爱的电影是哪部', '你平时喜欢干嘛']) {
+    assert.equal(isAboutHer(text), true, text);
+  }
+  for (const text of ['你还记得我最喜欢什么零食吗', '你知道我爱吃啥吗', '你吃饭了吗', '我最喜欢什么零食？']) {
+    assert.equal(isAboutHer(text), false, text);
   }
 });

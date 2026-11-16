@@ -172,6 +172,9 @@ def render_line(piece, today=None):
 
 expansion_rounds = 3
 AUTO_RELATED_BUDGET = 300
+HER_ANSWER_LIMIT = 2
+# 问她喜好时的壳：「你最喜欢什么X」里能用来对上以前那句问话的只有 X。
+HER_QUESTION_SHELL = {"最喜", "喜欢", "欢什", "你最", "最爱", "爱吃", "爱喝", "你喜", "你爱"}
 ABOUT_ME_BUDGET = 600      # 问自己的事时自动带的原话，最多这么多（字节），免得把提示词撑大
 RARE_DF = 8
 MUNDANE = {"天气", "时间", "时候", "东西", "问题", "地方", "感觉", "事情", "事情",
@@ -620,7 +623,56 @@ class Retriever:
                 'origin': event['origin'], 'recorded_at': event['recorded_at'], 'start': 0,
                 'end': len(event['text']), 'text': event['text']}
 
-    def _reply_after(self, scope, event_id):
+    def _her_answers(self, scope, query, limit=HER_ANSWER_LIMIT):
+        """问她自己的喜好（「你最喜欢什么零食」）：以前被问过同样的事，她当时怎么答的。
+
+        [(当时的问句, 她的回答)]，最新的在前。她的回答常常不带问句里的词（「薯片吧」），
+        所以不按词找回答，而是找以前那句问话，再取紧跟着的回答。
+        """
+        from .highlights import asks_her
+        if not asks_her(query) or not scope.startswith("qq:c2c:") or not index.fresh(self.store, scope):
+            return []
+        total = index.chunk_count(self.store, scope) or 0
+        df = lambda term: index.document_frequency(self.store, scope, term)
+        wanted = informative_terms(query, df, total) - HER_QUESTION_SHELL
+        if not wanted:
+            return []
+        asking = self._latest_user_event(scope)
+        found, seen = [], set()
+        for piece in index.ranked_pieces(self.store, scope, ASK_SHELL.sub(' ', query), 60):
+            if piece.get('role') != 'user' or piece['event_id'] == asking or not asks_her(piece['text']) \
+                    or not wanted & set(terms(piece['text'])):
+                continue
+            reply = self._reply_after(scope, piece['event_id'], min_len=1)
+            if reply and reply['text'] not in seen:
+                seen.add(reply['text'])
+                found.append((piece, reply))
+        found.sort(key=lambda pair: _moment_key(pair[1]), reverse=True)
+        return found[:limit]
+
+    def _her_own(self, scope, query, budget):
+        """自动提醒：问她自己的喜好时，把她以前的回答递给她，这次说法要一致。"""
+        pairs = self._her_answers(scope, query)
+        if not pairs:
+            return None
+        lines, sources = [], []
+        used = self.counter.count(HEADER)
+        for asked, reply in pairs:
+            line = render_line(reply) + f"｜这是你以前被问「{asked['text'].strip()}」时的回答；这次说法要和它一致"
+            cost = self.counter.count(line) + 1
+            if used + cost > min(budget, ABOUT_ME_BUDGET):
+                break
+            used += cost
+            lines.append(line)
+            sources.append(reply)
+        if not lines:
+            return None
+        context = HEADER + '\n' + '\n'.join(lines)
+        self._log(scope, query, sources)
+        return {'context': context, 'sources': sources, 'budget': budget,
+                'used': self.counter.count(context), 'unit': self.counter.unit}
+
+    def _reply_after(self, scope, event_id, min_len=8):
         """The assistant line immediately following an event in this scope, as a whole-event piece.
 
         问句和回答分开打分，回答常常不含问句里的词：真机问「哪家的好喝」，只找回了问话，
@@ -633,7 +685,7 @@ class Retriever:
             return None
         event = json.loads(row[0])
         # 太短的回答（「哈哈哈」「在」）带上只是噪音，不占预算。
-        if event['role'] != 'assistant' or not 8 <= len(event['text']) <= 180:
+        if event['role'] != 'assistant' or not min_len <= len(event['text']) <= 180:
             return None
         return {'event_id': event['event_id'], 'sender_id': event['sender_id'], 'role': event['role'],
                 'origin': event['origin'], 'recorded_at': event['recorded_at'], 'start': 0,
@@ -648,7 +700,7 @@ class Retriever:
             return None
         if not re.search(r"我|俺|咱", query):
             # 「泡泡还好吗」：只有问到档案里的专名（很少几句提过）才找；「天气怎么样」不翻旧账。
-            name = re.match(r"[㐀-鿿A-Za-z]{1,6}?(?=还好|怎么样|最近|现在)", query.strip())
+            name = re.match(r"[\u3400-\u9fffA-Za-z]{1,6}?(?=还好|怎么样|最近|现在)", query.strip())
             df = index.document_frequency(self.store, scope, name.group(0)) if name else 0
             if not name or len(name.group(0)) < 2 or name.group(0) in MUNDANE or not 0 < df <= RARE_DF:
                 return None
@@ -802,7 +854,7 @@ class Retriever:
 
     def recall(self, scope, query, budget=6000, sender_id=None, limit=32, *, highlight_only=False,
                dedup=0.0, expansion=False, related=False, ordinal=False, focus=False,
-               about_me=False, strict=False):
+               about_me=False, strict=False, her=False):
         if isinstance(budget,bool) or not isinstance(budget,int) or budget<0:raise MemoryError('预算必须是非负整数')
         if not isinstance(query,str):raise MemoryError('问题必须是字符串')
         if not isinstance(limit,int) or not 1<=limit<=256:raise MemoryError('候选上限必须为1至256')
@@ -873,6 +925,10 @@ class Retriever:
                         selected.append(extra)
                     omitted = set(replaced) | {event['event_id'] for event in source_events}
         if highlight_only:
+            if not lines and her:
+                mine = self._her_own(scope, query, budget)
+                if mine:
+                    return mine
             if not lines and about_me:
                 mine = self._about_me(scope, query, budget)
                 if mine:
@@ -1029,6 +1085,10 @@ class Retriever:
             if asking_her:
                 # 问她自己的喜好（「你最喜欢什么零食」）：用户说的「我最喜欢辣条」是用户的，不能递给她当自己的。
                 candidates = [p for p in candidates if p.get('role') == 'assistant']
+                # 以前被问过同样的事：她当时的回答排最前（「薯片吧」不带问句里的词，按词找不回来）。
+                for asked, reply in self._her_answers(scope, query):
+                    if fits(render_line(reply) + f"｜这是你以前被问「{asked['text'].strip()}」时的回答；这次说法要和它一致"):
+                        selected.append(reply)
             if her_words:
                 # 问的是她说过的话：她自己的原话排前面（稳定排序，原有先后不变）。
                 candidates = sorted(candidates, key=lambda p: p.get('role') != 'assistant')
