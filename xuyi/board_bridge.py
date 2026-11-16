@@ -103,8 +103,20 @@ def _placed(notes, facts):
     return out
 
 
+def writing_voice(persona):
+    """写日记、写便利贴用的人设：只要人设本身，去掉「在 QQ 上怎么发消息」那段规矩
+    （每条要短、最多分三条发……），那些和写一篇日记是冲突的。"""
+    from .personas import persona_body
+    body = persona_body(persona or "")
+    if not body:
+        return ""
+    return (body + "\n\n（以上是你的人设。现在不是在 QQ 上发消息，而是你自己在写东西："
+            "照着这个人设的性格、和对方的关系、说话方式来写，用你自己的视角。）")
+
+
 def request_notes(db_path, scope, facts, persona, now):
     """Return (cached model notes or None, whether a fresh request was just written)."""
+    persona = writing_voice(persona)
     if not facts or not persona:
         return None, False
     want = fingerprint(facts, persona)
@@ -143,7 +155,7 @@ def diary_length(count):
 
 
 def diary_prompt(day, weekday, messages):
-    lines = "\n".join(f"[{m['time']}] {'他' if m['role'] == 'user' else '你'}：{m['text']}"
+    lines = "\n".join(f"[{m['time']}] {'对方' if m['role'] == 'user' else '你'}：{m['text']}"
                       for m in messages)
     size = diary_length(len(messages))
     low, high = size["paragraphs"]
@@ -152,8 +164,9 @@ def diary_prompt(day, weekday, messages):
             "要求：\n"
             f"- 分成 {low} 到 {high} 段，每段两三句话，段与段之间空一行；"
             f"全文 {size['min']} 到 {size['max']} 字，无论如何不超过 {DIARY_MAX_CHARS} 字。\n"
-            "- 不是流水账：只写这天里真正有内容的事（他说的事、你们的约定、他的心情、你记住的细节），"
-            "寒暄、重复和没内容的话不要写。可以写细一点：他当时怎么说的、你心里怎么想。\n"
+            "- 不是流水账：只写这天里真正有内容的事（对方说的事、你们的约定、对方的心情、你记住的细节），"
+            "寒暄、重复和没内容的话不要写。可以写细一点：对方当时怎么说的、你心里怎么想。\n"
+            "- 提到对方时，用你平时对TA的称呼（名字、昵称）；聊天里看不出性别，就不要用「他」「她」。\n"
             "- 不要编：只能写这些话里出现过的事，不要加没发生过的事。\n"
             "- 像晚上自己回想这一天，用你的第一人称写，不要标题、日期、署名、列表或任何格式符号。\n\n"
             + lines)
@@ -209,6 +222,7 @@ def request_diary(db_path, scope, day, messages, persona, now, allow_write=True)
     写完就定稿：这一天已经有正文，就不再管内容变没变、也不会重写（规则升级也不重写）。
     `allow_write=False` 用于"还没到写日记的时候"——只读缓存，不请模型。
     """
+    persona = writing_voice(persona)
     if not messages or not persona:
         return None, False
     request, reply = paths(db_path, scope, f"diary-{day}")

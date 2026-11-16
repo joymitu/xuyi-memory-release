@@ -313,7 +313,7 @@ class PersonaApplyTests(unittest.TestCase):
             self.assertTrue(target["config"]["directPrompt"].startswith("你叫阿桃"))
             self.assertTrue(target["config"]["directPrompt"].endswith(CHAT_STYLE))
             self.assertIs(target["config"]["streaming"], True)  # --no-bubbles 不改发送方式
-            self.assertEqual(out["applied"], "自定义人设")
+            self.assertEqual(out["applied"], "我写的人设")
             with self.assertRaises(Exception):
                 apply_persona(None, profile, text="   ")
 

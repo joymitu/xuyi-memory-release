@@ -812,6 +812,10 @@ export function createSetup({ profileDir, getPluginManager, core, prefsPath, pre
         if (!/^[a-z0-9_-]{1,40}$/i.test(body.name)) throw new Error('人设名不对');
         return core(['persona', body.name, ...tail]);
       }
+      if (typeof body?.own === 'string') {
+        if (!/^[0-9a-f]{12}$/.test(body.own)) throw new Error('人设编号不对');
+        return core(['persona', '--own', body.own, ...tail]);
+      }
       const text = typeof body?.text === 'string' ? body.text.trim() : '';
       if (!text || text.length > 4000) throw new Error('人设要写 1 到 4000 字');
       const folder = mkdtempSync(join(tmpdir(), 'xuyi-persona-'));
@@ -820,6 +824,10 @@ export function createSetup({ profileDir, getPluginManager, core, prefsPath, pre
         writeFileSync(file, text, 'utf8');
         return await core(['persona', '--file', file, ...tail]);
       } finally { rmSync(folder, { recursive: true, force: true }); }
+    },
+    async forgetOwn(body) {
+      if (typeof body?.own !== 'string' || !/^[0-9a-f]{12}$/.test(body.own)) throw new Error('人设编号不对');
+      return core(['persona', '--forget-own', body.own]);
     },
     async diaryHour(body) {
       const hour = body?.hour;
@@ -837,7 +845,7 @@ export function createSetup({ profileDir, getPluginManager, core, prefsPath, pre
   };
 }
 
-const setupWrites = new Set(['/setup/persona', '/setup/install-qq', '/setup/diary-hour']);
+const setupWrites = new Set(['/setup/persona', '/setup/forget-own', '/setup/install-qq', '/setup/diary-hour']);
 
 // ---- 到点写日记：DSH 开着时每隔几分钟问一次 Python（xuyi diary-due），该不该写、几点写由它按用户设置判断 ----
 export function startDiaryClock(run, { firstDelay = 15000, interval = 5 * 60 * 1000 } = {}) {
@@ -874,6 +882,7 @@ export function createBoardRoute(getBoard, setup = null) {
       try {
         const body = JSON.parse((await readBody(req)) || '{}');
         const action = rest === '/setup/persona' ? setup.persona(body)
+          : rest === '/setup/forget-own' ? setup.forgetOwn(body)
           : rest === '/setup/diary-hour' ? setup.diaryHour(body) : setup.installQq();
         return json(200, await action);
       } catch (error) {

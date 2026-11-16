@@ -55,6 +55,8 @@ def main():
     persona_command=commands.add_parser('persona',help='打印人设预设全文（可粘贴进宿主人设配置）')
     persona_command.add_argument('name',nargs='?',help='预设名；用自己写的人设时省略，改用 --file')
     persona_command.add_argument('--file',help='自己写的人设文本文件（UTF-8）')
+    persona_command.add_argument('--own',help='用「我写的人设」里存过的那份（编号见 setup-state）')
+    persona_command.add_argument('--forget-own',help='从「我写的人设」里删掉一份（不影响正在用的人设）')
     persona_command.add_argument('--apply',action='store_true',help='直接写进宿主 QQ 配置（先自动备份）')
     persona_command.add_argument('--no-bubbles',action='store_true',help='不改发送方式（保持一整条、流式）')
     persona_command.add_argument('--profile',default=str(Path.home()/'.dsh/profiles/desktop'))
@@ -164,7 +166,12 @@ def main():
                 from .personas import list_personas, persona_status
                 from .board_bridge import DIARY_HOURS, diary_hour
                 from .carry import health
-                result={'persona':persona_status(args.profile),'presets':list_personas(include_prompt=True),
+                from .personas import list_own, keep_current_own
+                status=persona_status(args.profile)
+                # 现在用着自己写的人设：先存进「我写的人设」，页面上标「正在用」，以后换走也不丢。
+                status['own_id']=keep_current_own(store,args.profile)
+                result={'persona':status,'presets':list_personas(include_prompt=True),
+                        'own':list_own(store),
                         'diary_hour':diary_hour(args.db),'diary_hours':list(DIARY_HOURS),
                         'health':health(store)}
             elif args.command=='diary-due':
@@ -183,14 +190,25 @@ def main():
                     raise MemoryError(str(exc)) from exc
                 result={'diary_hour':diary_hour(args.db)}
             elif args.command=='persona':
-                from .personas import load_persona, apply_persona, compose_prompt
-                if bool(args.name)==bool(args.file):raise MemoryError('请给一个预设名，或用 --file 指定自己写的人设（二选一）')
-                text=Path(args.file).read_text(encoding='utf-8') if args.file else None
-                if args.apply:
+                from .personas import (load_persona, apply_persona, compose_prompt, save_own, load_own,
+                                       forget_own, keep_current_own)
+                if args.forget_own:
+                    result={'forgotten':forget_own(store,args.forget_own)}
+                elif sum(map(bool,(args.name,args.file,args.own)))!=1:
+                    raise MemoryError('请给一个预设名，或用 --file / --own 指定自己写的人设（三选一）')
+                else:
+                    text=Path(args.file).read_text(encoding='utf-8') if args.file else (load_own(store,args.own) if args.own else None)
+                if args.forget_own:
+                    pass
+                elif args.apply:
+                    # 换之前先把现在用着的自己写的人设存好，换成预设也不会丢。
+                    keep_current_own(store,args.profile)
                     result=apply_persona(args.name,args.profile,text=text,bubbles=not args.no_bubbles,create=args.create,group_reply=args.group_reply)
+                    if text is not None:
+                        result['own_id']=save_own(store,text,used=True)
                     result['提示']='重启 DeepSeek Harness 后生效'
                 else:
-                    data=load_persona(args.name) if args.name else {'label':'自定义人设','systemPrompt':text}
+                    data=load_persona(args.name) if args.name else {'label':'我写的人设','systemPrompt':text}
                     result=dict(data,directPrompt=compose_prompt(data['systemPrompt']))
             elif args.command=='stats':
                 from .stats import stats

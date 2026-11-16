@@ -142,7 +142,7 @@ def load_persona(name):
 
 
 def persona_status(profile_root):
-    """宿主里现在配的是哪个人设：预设名/「自定义人设」/没配。给首次引导显示用。"""
+    """宿主里现在配的是哪个人设：预设名/「我写的人设」/没配。给首次引导显示用。"""
     from .board_bridge import find_persona
     found = find_persona(profile_root)
     group = group_reply_status(profile_root)
@@ -156,7 +156,7 @@ def persona_status(profile_root):
             return {"configured": True, "name": item["name"], "label": item["label"],
                     "preview": item["description"], "group_reply": group}
     body = text.rsplit("\n\n" + CHAT_STYLE_HEADING, 1)[0].strip()
-    return {"configured": True, "name": None, "label": "自定义人设", "preview": body[:80], "group_reply": group}
+    return {"configured": True, "name": None, "label": "我写的人设", "preview": body[:80], "group_reply": group}
 
 
 def group_reply_status(profile_root):
@@ -186,7 +186,7 @@ def apply_persona(name, profile_root, backup=True, text=None, bubbles=True, crea
     if group_reply is not None and group_reply not in GROUP_REPLY:
         raise MemoryError("群里怎么回只能是 mention 或 all")
     if text is not None:
-        data = {"label": "自定义人设", "systemPrompt": text}
+        data = {"label": "我写的人设", "systemPrompt": text}
     else:
         data = load_persona(name)
     prompt = compose_prompt(data["systemPrompt"])
@@ -224,3 +224,65 @@ def apply_persona(name, profile_root, backup=True, text=None, bubbles=True, crea
                                          width=120), encoding="utf-8")
     return {"applied": data["label"], "backup": str(backup_path) if backup else None,
             "prompt_chars": len(prompt), "bubbles": bubbles, "group_reply": group_reply}
+
+
+# ---- 我写的人设：用户自己写的人设单独存一份，换成预设也不会丢 ----
+OWN_LIMIT = 20
+OWN_SCHEMA = """CREATE TABLE IF NOT EXISTS own_personas(
+    id TEXT PRIMARY KEY, text TEXT NOT NULL, saved_at TEXT NOT NULL, used_at TEXT NOT NULL)"""
+
+
+def persona_body(prompt):
+    """宿主里存的是「人设 + 聊天规矩」，取回用户写的那段人设本身。"""
+    return prompt.rsplit("\n\n" + CHAT_STYLE_HEADING, 1)[0].strip()
+
+
+def save_own(store, text, used=False):
+    """存一份用户自己写的人设（同样的内容只存一份）；最多留 OWN_LIMIT 份，挤掉最久没用的。"""
+    text = (text or "").strip()
+    if not text:
+        return None
+    store.db.execute(OWN_SCHEMA)
+    own_id = sha256(text.encode("utf-8")).hexdigest()[:12]
+    now = datetime.now().astimezone().isoformat(timespec="microseconds")   # 同一秒里换两次也分得清先后
+    store.db.execute("INSERT INTO own_personas(id,text,saved_at,used_at) VALUES(?,?,?,?) "
+                     "ON CONFLICT(id) DO UPDATE SET used_at=CASE WHEN ? THEN excluded.used_at ELSE used_at END",
+                     (own_id, text, now, now, 1 if used else 0))
+    store.db.execute("DELETE FROM own_personas WHERE id NOT IN "
+                     "(SELECT id FROM own_personas ORDER BY used_at DESC, saved_at DESC LIMIT ?)", (OWN_LIMIT,))
+    store.db.commit()
+    return own_id
+
+
+def list_own(store):
+    store.db.execute(OWN_SCHEMA)
+    rows = store.db.execute("SELECT id,text,saved_at,used_at FROM own_personas "
+                            "ORDER BY used_at DESC, saved_at DESC").fetchall()
+    return [{"id": own_id, "text": text, "preview": text[:60], "saved_at": saved_at, "used_at": used_at}
+            for own_id, text, saved_at, used_at in rows]
+
+
+def load_own(store, own_id):
+    store.db.execute(OWN_SCHEMA)
+    row = store.db.execute("SELECT text FROM own_personas WHERE id=?", (own_id,)).fetchone()
+    if not row:
+        raise MemoryError("没有这份自己写的人设")
+    return row[0]
+
+
+def forget_own(store, own_id):
+    store.db.execute(OWN_SCHEMA)
+    gone = store.db.execute("DELETE FROM own_personas WHERE id=?", (own_id,)).rowcount
+    store.db.commit()
+    return gone
+
+
+def keep_current_own(store, profile_root):
+    """换人设之前：现在宿主里用的是自己写的人设，就先存进「我写的人设」。"""
+    status = persona_status(profile_root)
+    if status["configured"] and status["name"] is None:
+        from .board_bridge import find_persona
+        found = find_persona(profile_root)
+        if found:
+            return save_own(store, persona_body(found["text"]), used=True)
+    return None

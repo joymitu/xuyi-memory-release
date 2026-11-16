@@ -1144,24 +1144,38 @@ test('persona details preview without applying and save edits only when confirme
   const script = page.slice(page.indexOf('function personaBlock'), page.indexOf('function hourBlock'));
   const prompt = '【你是谁】\n你是个喜欢收集明信片的朋友。';
   const preset = { name: 'postcard', label: '明信片朋友', description: '喜欢旅行', systemPrompt: prompt };
+  const other = { name: 'tea', label: '茶馆老板', description: '爱泡茶', systemPrompt: '你是茶馆老板。' };
   const detail = { dataset: { detail: '0' }, setAttribute: (key, value) => { detail[key] = value; }, focus() {} };
+  const choice = { dataset: { name: 'tea' } };
   const textarea = { focus() {} };
-  const elements = { textarea, label: {}, '[data-save-detail]': {}, '[data-close-detail]': {},
-    '[data-group]': { value: 'mention' }, '[data-own]': {} };
+  const question = {}, yes = { focus() {} }, no = {};
+  const confirmBox = { hidden: true, querySelector: s => ({ '[data-question]': question, '[data-yes]': yes, '[data-no]': no })[s] };
+  const elements = { textarea, label: {}, '[data-editor-hint]': {}, '[data-save-detail]': {}, '[data-close-detail]': {},
+    '[data-group]': { value: 'mention' }, '[data-own]': {}, '[data-confirm]': confirmBox };
   const editor = { hidden: true, querySelector: selector => elements[selector] };
   const box = { querySelector: selector => selector === '.persona-editor' ? editor : elements[selector],
-    querySelectorAll: selector => selector === '[data-detail]' ? [detail] : [] };
+    querySelectorAll: selector => selector === '[data-detail]' ? [detail] : selector === '[data-name]' ? [choice] : [] };
   const posts = [], notices = [];
   let allowed = false, saved = 0;
   const run = new Function('setupState', 'bindState', 'esc', 'say', 'setupPost', 'refreshSetup', 'box', 'onSaved',
     script + 'personaBlock(box, "test", { onSaved });');
-  run({ qq: { installed: true }, persona: { name: preset.name }, presets: [preset] },
-    { phase: 'bound' }, String, (...args) => notices.push(args),
-    async (path, body) => {
-      posts.push([path, body]);
-      return allowed ? { ok: true, data: { applied: '明信片朋友' } } : { ok: false, data: { error: '测试保存失败' } };
-    }, async () => {}, box, () => { saved += 1; });
+  run({ qq: { installed: true }, persona: { configured: true, name: preset.name, label: preset.label },
+    presets: [preset, other] },
+  { phase: 'bound' }, String, (...args) => notices.push(args),
+  async (path, body) => {
+    posts.push([path, body]);
+    return allowed ? { ok: true, data: { applied: '明信片朋友' } } : { ok: false, data: { error: '测试保存失败' } };
+  }, async () => {}, box, () => { saved += 1; });
   assert.match(box.innerHTML, /查看详情/);
+  // 点一下别的预设：只问，不换。取消就什么都不改。
+  choice.onclick();
+  assert.equal(confirmBox.hidden, false);
+  assert.match(question.textContent, /茶馆老板/);
+  assert.match(question.textContent, /明信片朋友/);
+  no.onclick();
+  assert.equal(confirmBox.hidden, true);
+  assert.deepEqual(posts, []);
+  // 看详情不保存；改群聊设置先问，取消就退回原来的选项。
   detail.onclick();
   assert.equal(editor.hidden, false);
   assert.equal(textarea.value, prompt);
@@ -1169,30 +1183,37 @@ test('persona details preview without applying and save edits only when confirme
   textarea.value = '还没保存的文字';
   elements['[data-group]'].value = 'all';
   elements['[data-group]'].onchange();
+  assert.equal(confirmBox.hidden, false);
+  no.onclick();
+  assert.equal(elements['[data-group]'].value, 'mention');
   elements['[data-close-detail]'].onclick();
   assert.equal(editor.hidden, true);
   assert.equal(detail['aria-expanded'], 'false');
   assert.deepEqual(posts, []);
+  // 改过的设定：先问，确定后才保存；保存失败编辑框保持打开。
   detail.onclick();
   assert.equal(textarea.value, prompt);
   textarea.value = '  ';
-  await elements['[data-save-detail]'].onclick();
+  elements['[data-save-detail]'].onclick();
+  assert.equal(confirmBox.hidden, true);
   assert.deepEqual(posts, []);
   const edited = prompt + '\n也喜欢散步。';
   textarea.value = edited;
-  await elements['[data-save-detail]'].onclick();
+  elements['[data-save-detail]'].onclick();
+  assert.equal(confirmBox.hidden, false);
+  assert.deepEqual(posts, []);
+  await yes.onclick();
+  await new Promise(done => setImmediate(done));
   assert.equal(editor.hidden, false);
   assert.equal(textarea.value, edited);
   assert.deepEqual(notices.at(-1), ['testDetail', '测试保存失败', true]);
   assert.equal(saved, 0);
   allowed = true;
-  await elements['[data-save-detail]'].onclick();
-  assert.deepEqual(posts.at(-1), ['setup/persona', { text: edited, groupReply: 'all' }]);
+  elements['[data-save-detail]'].onclick();
+  await yes.onclick();
+  await new Promise(done => setImmediate(done));
+  assert.deepEqual(posts.at(-1), ['setup/persona', { text: edited, groupReply: 'mention' }]);
   assert.equal(saved, 1);
-  elements['[data-close-detail]'].onclick();
-  detail.onclick();
-  await elements['[data-save-detail]'].onclick();
-  assert.deepEqual(posts.at(-1), ['setup/persona', { name: preset.name, groupReply: 'all' }]);
 });
 
 test('older hosts without a sidebar layout still get the diary as a header button', () => {
@@ -1290,6 +1311,13 @@ test('setup: QQ status and install go through the host plugin manager', async t 
   assert.ok(applied.args.includes('--file'));
   await assert.rejects(setup.persona({ text: '   ' }));
   await assert.rejects(setup.persona({ name: '../x' }));
+  // 「我写的人设」里存过的那份按编号用；删一份走单独的命令；乱填的编号进不了命令行。
+  applied = await setup.persona({ own: '0078ffdd271b' });
+  assert.deepEqual(applied.args.slice(0, 3), ['persona', '--own', '0078ffdd271b']);
+  await assert.rejects(setup.persona({ own: '--profile' }), /编号/);
+  const forgot = await setup.forgetOwn({ own: '0078ffdd271b' });
+  assert.deepEqual(forgot.args, ['persona', '--forget-own', '0078ffdd271b']);
+  await assert.rejects(setup.forgetOwn({ own: '../../x' }), /编号/);
   // 宿主没有插件管理服务时：读 profile 的 package.json，安装给出明确提示。
   const bare = createSetup({ profileDir: folder, getPluginManager: () => undefined, core, prefsPath: join(folder, 'none.json') });
   assert.equal((await bare.state()).qq.installed, false);

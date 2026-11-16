@@ -52,7 +52,7 @@ class PersonaSetupTests(unittest.TestCase):
         apply_persona(None, self.profile, text="你叫阿桃，是他的大学室友。", create=True)
         status = persona_status(self.profile)
         self.assertEqual(status["name"], None)
-        self.assertEqual(status["label"], "自定义人设")
+        self.assertEqual(status["label"], "我写的人设")
         self.assertIn("阿桃", status["preview"])
 
     def test_cli_setup_state_lists_complete_presets_for_the_editor(self):

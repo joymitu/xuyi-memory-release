@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 from xuyi.board import board, contacts
-from xuyi.board_bridge import (NOTE_WRITER, find_persona, fingerprint, paths, read, request_notes,
+from xuyi.board_bridge import (NOTE_WRITER, find_persona, writing_voice, fingerprint, paths, read, request_notes,
                                write)
 from xuyi.store import Store
 
@@ -191,9 +191,10 @@ class BoardNoteFactsTests(unittest.TestCase):
         self.assertTrue(pending)
         request_file, reply_file = paths(self.db, ALICE)
         asked = read(request_file)
-        self.assertEqual(asked['fingerprint'], fingerprint(facts, persona))
+        self.assertEqual(asked['fingerprint'], fingerprint(facts, writing_voice(persona)))
         self.assertEqual(asked['facts'], facts)
-        self.assertEqual(asked['persona'], persona)
+        self.assertEqual(asked['persona'], writing_voice(persona))
+        self.assertTrue(asked['persona'].startswith(persona))
         # 提示词随请求下发：改语气只改 Python，不用重新打包适配器。
         self.assertIn('15 到 35 个字', asked['prompt'])
         self.assertIn('一张一行', asked['prompt'])
@@ -305,7 +306,7 @@ class PersonaTests(unittest.TestCase):
             self.assertTrue(first['notes_pending'])
             request_file, reply_file = paths(db, scope)
             asked = read(request_file)
-            self.assertEqual(asked['persona'], '你叫小雅，说话短。')
+            self.assertTrue(asked['persona'].startswith('你叫小雅，说话短。'))
             self.assertEqual(len(asked['facts']), len(first['note_facts']))
             write(reply_file, {'fingerprint': asked['fingerprint'], 'writer': NOTE_WRITER,
                                'at': '2026-11-09T09:00:05+00:00',
