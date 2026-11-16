@@ -182,7 +182,7 @@ MUNDANE = {"天气", "时间", "时候", "东西", "问题", "地方", "感觉",
 FUNCTION_TERMS = {
     "什么", "来着", "记得", "还记", "你还", "得我", "是不", "不是", "有没", "没有", "怎么", "那个", "这个",
     "一下", "我们", "你们", "他们", "知道", "告诉", "你说", "我说", "叫啥", "啥来", "了吗", "我的", "你的",
-    "我是", "我在", "我有", "我要", "我想", "最近", "今天", "现在", "时候", "是什", "么时", "什么时",
+    "我是", "我在", "我有", "我要", "我想", "我最", "最近", "今天", "现在", "时候", "是什", "么时", "什么时",
     "the", "and", "for", "with", "what", "when", "where", "who", "why", "how", "did", "does", "was", "were",
     "his", "her", "their", "they", "she", "has", "have", "had", "about", "from", "that", "this", "which",
 }
@@ -250,6 +250,19 @@ def rank_penalty(piece, now=None):
 
 
 FOCUS_DAY = 12
+
+
+# 问句里的单字实词（「我的猫都叫什么」里的「猫」）：原话「我有两只猫」和问句没有共同的双字词。
+ASK_CHARS = set("什么啥哪谁几多少怎样吗呢来着嘛么")
+
+
+def own_single_match(piece, singles):
+    """单字只在用户说自己的事时算数：「我有两只猫」算，「路上看到一只橘猫」不算。"""
+    return bool(singles) and piece.get('role') == 'user' and '我' in piece['text']         and any(ch in piece['text'] for ch in singles)
+
+
+def content_chars(query):
+    return {ch for ch in re.sub(r"[^\u3400-\u9fff]", "", query) if ch not in NAME_GLUE and ch not in ASK_CHARS}
 
 
 def informative_terms(query, df, chunks):
@@ -365,9 +378,45 @@ PROMISE_QUERY = re.compile(r"你.{0,4}(?:答应|保证|说好|承诺)|说好的"
 PROMISE_PHRASES = ("提醒你", "帮你", "我会", "放心", "包在我", "答应你", "一定")
 
 
+# 同一件事的不同说法（问「发型」原话是「头发剪短了」，问「视力」原话是「近视六百度」）。
+# 问句里出现组里任何一个词，就把同组的其他词也带上；两字以内的词还能当锚点。
+SAME_THING = (
+    ("头发", "发型", "理发", "剪头", "剪发", "烫发", "染发", "刘海"),
+    ("打算", "计划", "准备", "决定", "考虑", "纠结", "想要"),
+    ("饮料", "提神", "喝的", "咖啡", "奶茶", "可乐", "果汁"),
+    ("视力", "眼睛", "近视", "眼镜", "度数", "隐形"),
+    ("运动", "锻炼", "健身", "跑步", "游泳", "瑜伽", "羽毛球", "篮球", "骑车", "爬山", "打球"),
+    ("电视剧", "追剧", "在追", "美剧", "韩剧", "综艺", "番剧"),
+    ("周末", "周六", "周日", "星期六", "星期天", "星期日", "礼拜六", "礼拜天"),
+    ("女儿", "闺女"), ("儿子", "男孩"), ("老公", "丈夫", "先生"), ("老婆", "妻子", "媳妇"),
+    ("爸爸", "我爸", "父亲", "老爸"), ("妈妈", "我妈", "母亲", "老妈"),
+    ("早餐", "早饭", "早上吃"), ("午饭", "午餐", "中午吃"), ("晚饭", "晚餐", "晚上吃"),
+    ("看牙", "牙医", "牙疼", "智齿", "拔牙", "补牙"),
+    ("体重", "多重", "公斤", "斤"),
+    ("身高", "多高"),
+    ("抽烟", "吸烟", "戒烟", "烟"),
+    ("喝酒", "戒酒", "酒量"),
+    ("乐器", "吉他", "钢琴", "尤克里里", "小提琴", "架子鼓"),
+    ("中学", "高中", "初中"), ("大学", "本科", "读研", "研究生"),
+    ("备考", "考试", "考研", "考公", "公务员", "雅思", "托福", "刷题"),
+    ("唱歌", "歌手", "听歌", "的歌"),
+)
+
+
+ASK_SHELL = re.compile(r"什么|啥|来着|多少|哪儿|哪里|哪|谁|怎么样|怎么|[吗呢嘛][？?！!。~～\s]*$|[？?]")
+
+
+def same_thing(query):
+    extra = []
+    for group in SAME_THING:
+        if any(word in query for word in group if len(word) >= 2):
+            extra.extend(word for word in group if word not in query)
+    return extra
+
+
 def focus_expansion(query):
     """(排序用的查询, 可以当锚点的额外词, 是否在问她自己说过的话, 是否在问最近的状态)"""
-    extra = []
+    extra = same_thing(query)
     for pattern, words in CATEGORY_WORDS.items():
         if pattern.search(query):
             extra.extend(words)
@@ -380,9 +429,11 @@ def focus_expansion(query):
     mood = bool(MOOD_QUERY.search(query.strip()))
     if mood:
         extra.extend(MOOD_WORDS)
+    # 排序时去掉问句的壳（「什么/啥/来着」），否则「什么牌子的」这种闲聊会排到证据前面。
+    ranked = ASK_SHELL.sub(' ', query).strip() or query
     if not extra:
-        return query, set(), her, mood
-    return query + ' ' + ' '.join(extra), set(extra), her, mood
+        return ranked, set(), her, mood
+    return ranked + ' ' + ' '.join(extra), set(extra), her, mood
 
 
 def stale_highlight(store, scope, record, source_events):
@@ -575,8 +626,8 @@ class Retriever:
             text = event.get('text') or ''
             if event.get('role') != 'user' or event['event_id'] in skip or not text.strip() \
                     or len(text) > 180 or is_bare_question({'role': 'user', 'text': text}) \
-                    or _moment_key(event) <= since:
-                continue
+                    or _moment_key(event) <= since or text.strip() == piece['text'].strip():
+                continue   # 一字不差的复读不是「后来又提到」，没有新内容
             later.append({'event_id': event['event_id'], 'sender_id': event['sender_id'], 'role': 'user',
                           'origin': event['origin'], 'recorded_at': event['recorded_at'],
                           'start': 0, 'end': len(text), 'text': text})
@@ -920,7 +971,9 @@ class Retriever:
                 moody = [p for p in candidates if p.get('role') == 'user' and any(w in p['text'] for w in MOOD_WORDS)]
                 moody.sort(key=_moment_key, reverse=True)
                 candidates = moody + [p for p in candidates if p not in moody]
-            anchored = any(informative & set(terms(p['text'])) for p in candidates if not is_echo(p, query))
+            singles = {ch for ch in content_chars(query) if total < 30 or df(ch) <= FOCUS_MAX_DF * total}
+            anchored = any(informative & set(terms(p['text'])) or own_single_match(p, singles)
+                           for p in candidates if not is_echo(p, query))
         if forgotten:
             candidates = [p for p in candidates if p['event_id'] not in forgotten]
         if focus and candidates:
@@ -985,10 +1038,13 @@ class Retriever:
             if is_echo(piece, query):continue
             # 已作为别的行的「前一句 / 回答」带出来过的，不再出第二次（真实档案里同一行出现了两遍）。
             if any(p['event_id'] == piece['event_id'] and p['start'] == piece['start'] for p in selected):continue
+            # 一字不差的重复（每天都说一遍的「下班路上看到橘猫」）只留排在最前的那条，别占掉证据的位置。
+            if any(p['text'].strip() == piece['text'].strip() and p.get('role') == piece.get('role')
+                   for p in selected):continue
             # The ranker's top line always stays (dense rescues: "噩梦" vs "做梦"); after it,
             # anchored queries keep only lines sharing an informative term, unanchored
             # ones ("宠物" vs "猫") keep the ranker's first few guesses.
-            if informative is not None and not informative & set(terms(piece['text'])) \
+            if informative is not None and not informative & set(terms(piece['text']))                     and not own_single_match(piece, singles) \
                     and piece['event_id'] not in {p['event_id'] for p in newer.values()} \
                     and not any(e in piece['text'] for e in long_extra) \
                     and kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD)):continue
