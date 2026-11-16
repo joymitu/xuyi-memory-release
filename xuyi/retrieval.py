@@ -252,17 +252,19 @@ def rank_penalty(piece, now=None):
 FOCUS_DAY = 12
 
 
-# 问句里的单字实词（「我的猫都叫什么」里的「猫」）：原话「我有两只猫」和问句没有共同的双字词。
-ASK_CHARS = set("什么啥哪谁几多少怎样吗呢来着嘛么")
+# 问句里的单字名词（「我的猫都叫什么」里的「猫」）：原话「我有两只猫」和问句没有共同的双字词。
+# 只认这一小批：「最近」的「近」、「换过」的「换」这种字一放开，就会抓到不相干的话。
+SINGLE_NOUNS = set("猫狗鸟鱼兔龟车房书歌剧茶酒烟药牙腰腿膝胃眼")
 
 
 def own_single_match(piece, singles):
     """单字只在用户说自己的事时算数：「我有两只猫」算，「路上看到一只橘猫」不算。"""
-    return bool(singles) and piece.get('role') == 'user' and '我' in piece['text']         and any(ch in piece['text'] for ch in singles)
+    return (bool(singles) and piece.get('role') == 'user' and '我' in piece['text']
+            and any(ch in piece['text'] for ch in singles))
 
 
 def content_chars(query):
-    return {ch for ch in re.sub(r"[^\u3400-\u9fff]", "", query) if ch not in NAME_GLUE and ch not in ASK_CHARS}
+    return {ch for ch in query if ch in SINGLE_NOUNS}
 
 
 def informative_terms(query, df, chunks):
@@ -359,6 +361,9 @@ def newer_versions(candidates, df=None, total=0, anchor=None):
 
 # 问大类时把具体的词也带上（拷问集二批问题 7：「宠物」只找回了猫）。
 CATEGORY_WORDS = {
+    # 原话常只说品种（「养了只柯基」），问的是「狗」「猫」。
+    re.compile(r"狗"): ("柯基", "金毛", "泰迪", "哈士奇", "柴犬", "边牧", "拉布拉多", "比熊", "博美", "萨摩"),
+    re.compile(r"猫"): ("布偶", "英短", "美短", "暹罗", "狸花", "蓝猫", "加菲"),
     re.compile(r"宠物|养了?(?:哪些|什么|啥)"): ("猫", "狗", "仓鼠", "兔子", "鹦鹉", "乌龟", "金鱼", "柯基", "金毛", "泰迪"),
     re.compile(r"(?:在哪|哪里|哪儿|什么地方)(?:上班|工作)|(?:上班|工作)的?(?:地方|在哪)|哪家公司|公司在哪"):
         ("公司", "单位", "上班", "工作", "入职", "跳槽"),
@@ -397,13 +402,13 @@ SAME_THING = (
     ("抽烟", "吸烟", "戒烟", "烟"),
     ("喝酒", "戒酒", "酒量"),
     ("乐器", "吉他", "钢琴", "尤克里里", "小提琴", "架子鼓"),
-    ("中学", "高中", "初中"), ("大学", "本科", "读研", "研究生"),
+    ("中学", "高中", "初中"),
     ("备考", "考试", "考研", "考公", "公务员", "雅思", "托福", "刷题"),
     ("唱歌", "歌手", "听歌", "的歌"),
 )
 
 
-ASK_SHELL = re.compile(r"什么|啥|来着|多少|哪儿|哪里|哪|谁|怎么样|怎么|[吗呢嘛][？?！!。~～\s]*$|[？?]")
+ASK_SHELL = re.compile(r"什么|啥|来着|最近|多少|哪儿|哪里|哪|谁|怎么样|怎么|[吗呢嘛][？?！!。~～\s]*$|[？?]")
 
 
 def same_thing(query):
@@ -1044,7 +1049,8 @@ class Retriever:
             # The ranker's top line always stays (dense rescues: "噩梦" vs "做梦"); after it,
             # anchored queries keep only lines sharing an informative term, unanchored
             # ones ("宠物" vs "猫") keep the ranker's first few guesses.
-            if informative is not None and not informative & set(terms(piece['text']))                     and not own_single_match(piece, singles) \
+            if informative is not None and not informative & set(terms(piece['text'])) \
+                    and not own_single_match(piece, singles) \
                     and piece['event_id'] not in {p['event_id'] for p in newer.values()} \
                     and not any(e in piece['text'] for e in long_extra) \
                     and kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD)):continue

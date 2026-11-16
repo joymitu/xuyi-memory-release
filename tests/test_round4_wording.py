@@ -66,6 +66,26 @@ class SingleCharacterTests(WordingBase):
         self.assertFalse(any('什么牌子的' in line for line in lines), lines)
 
 
+class NoSideEffectTests(WordingBase):
+    """第一版放开单字/同义词后，拷问集里倒退的四题。"""
+
+    def test_a_character_inside_a_word_does_not_pull_in_a_sad_line(self):
+        self.chat('我爷爷去年走了，最近总梦到他。')
+        self.assertNotIn('爷爷', self.look('最近有什么好看的电影？'))
+
+    def test_a_verb_character_does_not_hide_the_job(self):
+        self.chat('我在一家银行做柜员。', '我想换个手机，在纠结买哪个。')
+        self.assertIn('银行', self.look('我换过工作吗？'))
+
+    def test_college_does_not_bring_in_graduate_school(self):
+        self.chat('我大学室友叫阿强，现在在深圳。', '我高中同桌叫阿伟，在北京读研。')
+        self.assertNotIn('北京', self.look('我大学室友现在在哪个城市？'))
+
+    def test_dog_finds_the_breed(self):
+        self.chat('我养了只柯基，叫豆豆。')
+        self.assertIn('豆豆', self.look('我家狗叫什么？'))
+
+
 class RepeatTests(WordingBase):
     def test_the_same_chit_chat_said_many_times_shows_once(self):
         self.chat('我把头发剪短了。')
