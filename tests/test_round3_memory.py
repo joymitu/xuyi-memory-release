@@ -53,8 +53,14 @@ class RelatedFallbackTests(Base):
         self.archive.say('我现在住在杭州滨江。').say('今天好累', minutes=DAY).say('搬完家了，现在住上海徐汇。', minutes=DAY)
         context = self.related('我现在住在哪？')
         self.assertIn('上海', context)
-        old = [line for line in context.split('\n') if '杭州' in line]
-        self.assertTrue(all('以新的为准' in line for line in old), old)
+        self.assertNotIn('杭州', context)   # 确定搬过家了：只给新的那句
+
+    def test_unclear_follow_up_keeps_both_lines(self):
+        self.archive.say('我养了只柯基叫豆豆。').say('今天好累', minutes=DAY).say('豆豆最近老是咳嗽。', minutes=DAY)
+        context = self.related('柯基好可爱')
+        self.assertIn('柯基', context)
+        self.assertIn('咳嗽', context)
+        self.assertIn('后来又提到过', context)
 
     def test_related_fallback_ignores_questions_about_her(self):
         self.archive.say('我最喜欢的零食是辣条。')

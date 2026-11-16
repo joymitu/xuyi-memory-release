@@ -450,14 +450,16 @@ def auto_remember(store, scope, query, budget=AUTO_RELATED_BUDGET, counter=None,
         newer = found.get(piece["event_id"]) or (later(piece) if later else None)
     if newer and newer["event_id"] != piece["event_id"]:
         replaced = bool(newer.get("number_update")) or bool(CHANGE_TEXT.search(newer["text"]))
-        old_line = render_line(piece) + ("｜之后有更新的说法，以新的为准（见下一行）" if replaced else "｜后来又提到过（见下一行）")
-        new_line = render_line(newer) + "｜这是后来又提到的"
-        both = HEADER + old_line + "\n" + new_line
-        if counter.count(both) <= (pair_budget or budget):
-            return {"context": both, "sources": [dict(piece, unverified_related=True), dict(newer, unverified_related=True)],
-                    "budget": budget, "used": counter.count(both), "unit": counter.unit, "shared_terms": shared[:4]}
         if replaced:
-            piece = newer   # 放不下两句：只给新的，别拿旧的当现状
+            piece = newer   # 确定改过了（搬家/换工作/数值变了）：只给新的那句
+        else:
+            # 拿不准后一句是不是推翻了前一句（「汤圆4月1号捡到的」→「汤圆今天生病了」）：两句都给，让回复的模型判断。
+            old_line = render_line(piece) + "｜后来又提到过（见下一行）"
+            new_line = render_line(newer) + "｜这是后来又提到的"
+            both = HEADER + old_line + "\n" + new_line
+            if counter.count(both) <= (pair_budget or budget):
+                return {"context": both, "sources": [dict(piece, unverified_related=True), dict(newer, unverified_related=True)],
+                        "budget": budget, "used": counter.count(both), "unit": counter.unit, "shared_terms": shared[:4]}
     line = render_line(piece)
     context = HEADER + line
     if counter.count(context) > budget:
