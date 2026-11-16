@@ -291,7 +291,7 @@ def is_hedge(piece):
 
 
 # 不带「更正」字样的改口：较新的一句带这些字眼、又和较旧的一句有共同实词，就以新的为准。
-CHANGE_TEXT = re.compile(r"搬家|搬到|搬去|改到|改成|改为|改去|改喝|改吃|换成|换到|换了|跳槽|离职|辞职|入职"
+CHANGE_TEXT = re.compile(r"搬家|搬到|搬去|搬完家|搬了家|换工作|换了工作|新公司|新单位|改到|改成|改为|改去|改喝|改吃|换成|换到|换了|跳槽|离职|辞职|入职"
                          r"|不再|戒了|已经不|又捡|又养|又买|又多了|又开始|重新开始|恢复|现在")
 CHANGE_WINDOW = 8   # 只在排名前几条里找（都是和问题相关的行）
 LATER_POOL = 300            # 「后来又提到」只看这件事之后最近的 300 句
@@ -347,6 +347,8 @@ def newer_versions(candidates, df=None, total=0, anchor=None):
 # 问大类时把具体的词也带上（拷问集二批问题 7：「宠物」只找回了猫）。
 CATEGORY_WORDS = {
     re.compile(r"宠物|养了?(?:哪些|什么|啥)"): ("猫", "狗", "仓鼠", "兔子", "鹦鹉", "乌龟", "金鱼", "柯基", "金毛", "泰迪"),
+    re.compile(r"(?:在哪|哪里|哪儿|什么地方)(?:上班|工作)|(?:上班|工作)的?(?:地方|在哪)|哪家公司|公司在哪"):
+        ("公司", "单位", "上班", "工作", "入职", "跳槽"),
     re.compile(r"家人|家里(?:人|都有|有谁)|亲人"): ("爸", "妈", "妹妹", "弟弟", "哥哥", "姐姐", "爷爷", "奶奶", "老公", "老婆"),
     # 问「怎么称呼我」，原话是「叫我… / 别喊我…」（第四批盲测「别叫我宝宝」）。
     re.compile(r"称呼|怎么(?:叫|喊)我|(?:叫|喊)我(?:什么|啥)"): ("叫我", "喊我", "别叫", "别喊", "称呼"),
@@ -416,7 +418,7 @@ def is_echo(piece, query):
     return piece.get('start', 0) == 0 and piece['text'].strip() == query.strip()
 
 
-def auto_remember(store, scope, query, budget=AUTO_RELATED_BUDGET, counter=None):
+def auto_remember(store, scope, query, budget=AUTO_RELATED_BUDGET, counter=None, later=None, pair_budget=None):
     """Topic-triggered recall for non-question turns.
 
     Fires only when the top indexed chunk shares a RARE term (df<=RARE_DF)
@@ -425,9 +427,10 @@ def auto_remember(store, scope, query, budget=AUTO_RELATED_BUDGET, counter=None)
     never runs when a highlight was found. Zero-injection otherwise.
     """
     from . import index as xuyi_index
-    from .highlights import HISTORY_QUERY, OTHER_OWNER
+    from .highlights import HISTORY_QUERY, OTHER_OWNER, _asks_someone_else
     counter = counter or ByteCounter()
-    if not query.strip() or HISTORY_QUERY.search(query) or OTHER_OWNER.search(query):
+    if not query.strip() or HISTORY_QUERY.search(query) or OTHER_OWNER.search(query) \
+            or _asks_someone_else(query):
         return None
     if not scope.startswith("qq:c2c:") or not xuyi_index.fresh(store, scope):
         return None
@@ -441,6 +444,20 @@ def auto_remember(store, scope, query, budget=AUTO_RELATED_BUDGET, counter=None)
               and xuyi_index.document_frequency(store, scope, term) <= RARE_DF]
     if not shared:
         return None
+    newer = None
+    if piece.get("role") == "user":
+        found = newer_versions(top, anchor=grams)
+        newer = found.get(piece["event_id"]) or (later(piece) if later else None)
+    if newer and newer["event_id"] != piece["event_id"]:
+        replaced = bool(newer.get("number_update")) or bool(CHANGE_TEXT.search(newer["text"]))
+        old_line = render_line(piece) + ("｜之后有更新的说法，以新的为准（见下一行）" if replaced else "｜后来又提到过（见下一行）")
+        new_line = render_line(newer) + "｜这是后来又提到的"
+        both = HEADER + old_line + "\n" + new_line
+        if counter.count(both) <= (pair_budget or budget):
+            return {"context": both, "sources": [dict(piece, unverified_related=True), dict(newer, unverified_related=True)],
+                    "budget": budget, "used": counter.count(both), "unit": counter.unit, "shared_terms": shared[:4]}
+        if replaced:
+            piece = newer   # 放不下两句：只给新的，别拿旧的当现状
     line = render_line(piece)
     context = HEADER + line
     if counter.count(context) > budget:
@@ -748,8 +765,11 @@ class Retriever:
                     omitted = set(replaced) | {event['event_id'] for event in source_events}
         if highlight_only:
             if not lines and related:
+                df = lambda term: index.document_frequency(self.store, scope, term)
                 fallback = auto_remember(self.store, scope, query, budget=min(budget, AUTO_RELATED_BUDGET),
-                                         counter=self.counter)
+                                         counter=self.counter, pair_budget=min(budget, 2 * AUTO_RELATED_BUDGET),
+                                         later=lambda piece: self._later_mention(scope, piece, query, df,
+                                                                                 set(forgotten) | {piece['event_id']}))
                 if fallback and any(piece['event_id'] in forgotten for piece in fallback['sources']):
                     fallback = None
                 if fallback:

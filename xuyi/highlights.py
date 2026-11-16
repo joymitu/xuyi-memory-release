@@ -198,6 +198,7 @@ class _PreferenceFamily:
     # 改写出来的「我最爱的※如今是草莓了」（不能用「现在」：PREFIX 会把它当口头禅删掉）：只在上一句喜好之后不久才算改口。
     NOW = re.compile(r"我最(?:爱|喜欢)的※如今是" + VALUE + r"了[。！!]?")
     NOW_WINDOW_SECONDS = 10 * 60
+    FIX = re.compile(r"我最(?:爱|喜欢)的※不是(?P<old>[\u3400-\u9fffA-Za-z0-9·_-]{1,20})是" + VALUE + r"[。！!]?")
     QUERY_CAT = re.compile(r"最(?:爱|喜欢|讨厌)(?:的|(?:什么|啥|哪个|哪位|哪首|哪部|哪本|哪种|哪款|哪家|哪一个))"
                            r"(?P<cat>[\u3400-\u9fff]{1,6}?)(?:是|吗|么|呢|来着|啊|呀|[？?。，,]|$)")
     CHANGE = re.compile(r"我最(?:爱|喜欢|讨厌)的?" + CAT + r"(?:改|换)(?:成|为|到)" + VALUE + r"了?[。！!]?")
@@ -266,11 +267,17 @@ class _PreferenceFamily:
         """(event, kind, key, rendered, correction); a ※ category means the one named most recently."""
         last = None
         last_at = None
+        latest = {}
         seen = set()
         for event, kind, match, correction in parsed:
             key, rendered = self._record(kind, match)
             if not rendered or UNCERTAIN.search(rendered):
                 continue
+            if kind == "fix":
+                # 「不是X，是Y」：X 必须正是最近那个类别现在记着的值，否则不知道在纠正什么。
+                if last is None or latest.get(last) != self._trim(match["old"]):
+                    continue
+                kind, correction = "change", True
             if kind == "now":
                 moment = _by_event_time((event,))
                 if last is None or last_at is None \
@@ -287,6 +294,7 @@ class _PreferenceFamily:
             if (id(event), key, rendered) in seen:
                 continue
             seen.add((id(event), key, rendered))
+            latest[key] = rendered
             yield event, kind, key, rendered, correction
 
     def relevant(self, text):
@@ -367,7 +375,7 @@ class _PreferenceFamily:
         body = self.PREFIX.sub("", body, count=1)
         if self.PAST.search(body):
             return None
-        for kind, pattern in (("now", self.NOW), ("change", self.CHANGE), ("super", self.SUPER),
+        for kind, pattern in (("fix", self.FIX), ("now", self.NOW), ("change", self.CHANGE), ("super", self.SUPER),
                               ("super", self.INVERT), ("color", self.COLOR), ("verb", self.VERB),
                               ("negate", self.NEGATE_VERB), ("negate", self.NEGATE_BARE)):
             match = pattern.fullmatch(body)
@@ -376,7 +384,7 @@ class _PreferenceFamily:
         return None
 
     def _record(self, kind, match):
-        if kind == "now":
+        if kind in ("now", "fix"):
             return HOLE, self._trim(match["value"])
         if kind == "color":
             return "颜色", self._trim(match["value"])
@@ -788,8 +796,10 @@ SUBJECT = re.compile(r"我|你|您|他|她|妈|爸|哥|姐|弟|妹|男朋友|女
 ANCHOR = re.compile(r"最|喜欢|爱|讨厌|还(?:在|再)?[喝吃玩用去]|戒|有什么|有啥|安排|计划|打算|约|能|可以|过敏|忌口|心情|感觉")
 
 
-def _asks_someone_else(query, family):
+def _asks_someone_else(query, family=None):
     anchor = ANCHOR.search(query)
+    if not anchor and family is None:
+        return False
     before = query[:anchor.start()] if anchor else query[:family.QUERY.search(query).start()]
     subjects = SUBJECT.findall(before)
     return bool(subjects) and subjects[-1] != "我"

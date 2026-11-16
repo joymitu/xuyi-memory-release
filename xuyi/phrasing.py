@@ -52,6 +52,9 @@ NOT_A_TASTE = re.compile(r"\d|[点时分秒天周月年号岁春夏秋冬]|早�
 THEN_NOW = re.compile(r"^我?(?:以前|之前|原来)(?:最爱|最喜欢)(?P<verb>[" + VERBS + r"])?(?:的(?P<cat>[㐀-鿿]{1,6}?)是|是)?"
                       r"(?P<old>[㐀-鿿A-Za-z0-9·_-]{1,12}?)[，,]?(?:但是?|可是|不过)?(?:现在|如今)"
                       r"(?:是|变成|成了|换成|改成|改|换)?了?(?P<verb2>[" + VERBS + r"])?(?P<new>[㐀-鿿A-Za-z0-9·_-]{1,12}?)了?[。！!～~]*$")
+# 「不是薯片，是辣条」：只有「不是」后面那个正好是当前记着的值，家族才认作改口。
+NOT_BUT = re.compile(r"^(?:不对[，,]?)?(?:不是|并不是)" + LAZY + r"[，,]\s*(?:而)?(?:是|应该是|就是)" + LAZY
+                     + r"(?:[，,。！!]+.*)?$")
 PREFER_NOW = re.compile(r"^(?:现在)?更(?:爱|喜欢)" + LAZY + r"(?:一点|一些)?了?$")
 WHO = r"([㐀-鿿A-Za-z]{1,4}?)"
 ACTION = r"(?=约好|约了|一起|去|开会|吃饭|聚餐|聚|打|逛|看|见|碰|钓|爬|玩|喝|吃|唱|出去|$)"
@@ -130,6 +133,9 @@ def variants(text):
     ("……，超级粘人") no longer hides a statement.
     """
     text = text.strip()
+    if (match := NOT_BUT.fullmatch(text)) and match[1] != match[2] and not QUESTION.search(text) \
+            and not OTHERS.search(text) and not NOT_A_TASTE.search(match[2]):
+        return [text, f"我最爱的{HOLE}不是{match[1]}是{match[2]}。"]
     if (match := THEN_NOW.fullmatch(text)) and match["old"] != match["new"] \
             and not QUESTION.search(text) and not OTHERS.search(text):
         verb = match["verb"] or match["verb2"]
