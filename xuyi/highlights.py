@@ -805,6 +805,15 @@ def _asks_someone_else(query, family=None):
     return bool(subjects) and subjects[-1] != "我"
 
 
+def asks_her(query):
+    """问的是她自己（「你最喜欢什么零食」「你能吃辣吗」），不是用户。"""
+    anchor = ANCHOR.search(query)
+    if not anchor:
+        return False
+    subjects = SUBJECT.findall(query[:anchor.start()])
+    return bool(subjects) and subjects[-1] in ("你", "您")
+
+
 def current_highlight(scope, query, events):
     """Return at most one relevant candidate, its sources, and replaced source IDs."""
     if not query.strip() or not scope.startswith("qq:c2c:") or HISTORY_QUERY.search(query) \

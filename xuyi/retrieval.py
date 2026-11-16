@@ -1010,6 +1010,7 @@ class Retriever:
         if ordinal and candidates:
             replaced = self._supersessions(scope, sender_id, load_events())
         informative = None
+        asking_her = False
         if focus and candidates:
             # Focused recall (the model's own lookup): stop filling the budget with
             # lines that only share a character or a question word with the query.
@@ -1023,6 +1024,11 @@ class Retriever:
             # 短的扩展词（猫/狗/推荐）按词元比；长短语（可以看看）词元里没有，按原文子串比。
             informative = informative_terms(query, df, total) | {e for e in extra_terms if len(e) <= 2}
             long_extra = tuple(e for e in extra_terms if len(e) > 2)
+            from .highlights import asks_her
+            asking_her = asks_her(query) and not her_words
+            if asking_her:
+                # 问她自己的喜好（「你最喜欢什么零食」）：用户说的「我最喜欢辣条」是用户的，不能递给她当自己的。
+                candidates = [p for p in candidates if p.get('role') == 'assistant']
             if her_words:
                 # 问的是她说过的话：她自己的原话排前面（稳定排序，原有先后不变）。
                 candidates = sorted(candidates, key=lambda p: p.get('role') != 'assistant')
@@ -1110,7 +1116,7 @@ class Retriever:
                     and not own_single_match(piece, singles) \
                     and piece['event_id'] not in {p['event_id'] for p in newer.values()} \
                     and not any(e in piece['text'] for e in long_extra) \
-                    and (strict or (piece.get('role') == 'assistant' and not her_words)
+                    and (strict or (piece.get('role') == 'assistant' and not her_words and not asking_her)
                          or kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD))):continue
             # ↑ 没有共同词时只猜用户自己的原话：她的回应（「我一直在」）一被猜中，就会把前一句伤心事带出来。
             kept += 1
