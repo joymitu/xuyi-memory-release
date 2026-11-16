@@ -274,6 +274,9 @@ def informative_terms(query, df, chunks):
     for term in set(terms(query)):
         if len(term) < 2 or term in FUNCTION_TERMS:
             continue
+        # 「我一般」的「我一」跨了词，会碰上「我一直在」；「我妈」「我姐」这种留着。
+        if len(term) == 2 and term[0] in "我你他她" and term[1] in GLUE_CHARS | NOT_LINKING:
+            continue
         if chunks >= 30 and df(term) > FOCUS_MAX_DF * chunks:
             continue
         out.add(term)
@@ -316,7 +319,7 @@ LATER_COSINE = 0.75         # 语义很近
 LATER_COSINE_NUMBER = 0.70  # 两句都带数字时，较近就算（数值变了）；不能再低：月薪/房租、体重/身高约 0.68
 LATER_HEAD = 3              # 只给排在最前的 3 条用户原话找后续
 # 「带数字」：阿拉伯数字，或中文数字后面跟量词/单位（「一万二」「三斤」；「一盒巧克力」不算）。
-NUMBER = re.compile(r"\d|[一二两三四五六七八九十百千万]+[万千百块元斤岁公里米分]")
+NUMBER = re.compile(r"\d|[一二两三四五六七八九十百千万]+[万千百块元斤岁公里米分点度号]")
 # 判断「两句说的是同一件事」时，共有词里至少一个字不是虚字：「我最」不算，「酒了」「只猫」「在住」算。
 GLUE_CHARS = set("我你他她它的了是在最很都也就还又和吧呢啊吗被把给让要会能想喜欢爱吃喝个这那有没不么什好")
 # 判断「专有名字」更严：每个字都不能是功能字（「叫阿」这种跨词碎片不算名字）。
@@ -328,11 +331,29 @@ def topic_terms(text):
             and any(ch not in GLUE_CHARS for ch in t)}
 
 
-def newer_versions(candidates, df=None, total=0, anchor=None):
+# 问句里能把新旧两句连起来的字：「我存了多少钱」的「存」连起「存了2万」和「存到5万了」。
+# 数字、问句的壳、代词虚字都不算。
+NOT_LINKING = set("什么啥哪谁几多少怎样吗呢来着嘛么般常平时候现在最近"
+                  "一二两三四五六七八九十百千万零点度号块元斤岁米分") | set("0123456789")
+
+
+def linking_chars(query):
+    return {ch for ch in re.sub(r"[^㐀-鿿]", "", query or "")
+            if ch not in NAME_GLUE and ch not in NOT_LINKING}
+
+
+def same_subject(old_text, new_text, query):
+    """两句说的是问句里的同一件事，而且数字变了（存了2万→存到5万；十二点睡→十一点睡）。"""
+    shared = linking_chars(query) & set(old_text) & set(new_text)
+    return bool(shared) and bool(NUMBER.search(old_text)) and bool(NUMBER.search(new_text))
+
+
+def newer_versions(candidates, df=None, total=0, anchor=None, query=None):
     """{旧行 event_id: 更新说法那一行}；只看用户原话。
 
     anchor：问题里的有效词。旧说法本身要和问题相关（含这些词），或者它是相关行的新说法
     （「字节上班」→「去了腾讯」→「在米哈游」连成一串）；否则两行碰巧都在前几名也不算。
+    query：问句原文。数字变了、且和问句共有一个实字的两句，不带改变字眼也算新说法（存到5万了）。
     """
     def content(piece):
         return {t for t in topic_terms(piece['text'])
@@ -344,13 +365,13 @@ def newer_versions(candidates, df=None, total=0, anchor=None):
     while grew:
         grew = False
         for new in sorted(top, key=_moment_key):
-            if not CHANGE_TEXT.search(new['text']):
-                continue
+            changed = bool(CHANGE_TEXT.search(new['text']))
             for old in top:
-                if old['event_id'] not in relevant or old['event_id'] == new['event_id'] \
-                        or _moment_key(old) >= _moment_key(new):
+                if old['event_id'] == new['event_id'] or _moment_key(old) >= _moment_key(new):
                     continue
-                if content(old) & content(new):
+                # 和问句共有实字、数字变了的两句，本身就和问题相关，不用再看锚点。
+                if same_subject(old['text'], new['text'], query) \
+                        or (old['event_id'] in relevant and changed and content(old) & content(new)):
                     current = found.get(old['event_id'])
                     if current is None or _moment_key(new) > _moment_key(current):
                         found[old['event_id']] = new
@@ -404,6 +425,7 @@ SAME_THING = (
     ("喝酒", "戒酒", "酒量"),
     ("乐器", "吉他", "钢琴", "尤克里里", "小提琴", "架子鼓"),
     ("中学", "高中", "初中"),
+    ("爱好", "兴趣", "迷上", "爱上", "喜欢上", "入坑", "沉迷"),
     ("备考", "考试", "考研", "考公", "公务员", "雅思", "托福", "刷题"),
     ("唱歌", "歌手", "听歌", "的歌"),
 )
@@ -437,6 +459,9 @@ def focus_expansion(query):
         extra.extend(MOOD_WORDS)
     # 排序时去掉问句的壳（「什么/啥/来着」），否则「什么牌子的」这种闲聊会排到证据前面。
     ranked = ASK_SHELL.sub(' ', query).strip() or query
+    # 「我一般」→「我 一般」：跨词的「我一」会把「我一直在」排到前面。
+    ranked = ''.join(ch + (' ' if ch in "我你他她" and nxt in GLUE_CHARS | NOT_LINKING else '')
+                     for ch, nxt in zip(ranked, ranked[1:] + ' '))
     if not extra:
         return ranked, set(), her, mood
     return ranked + ' ' + ' '.join(extra), set(extra), her, mood
@@ -661,6 +686,10 @@ class Retriever:
             shared = {t for t in mine & topic_terms(new['text']) if not set(t) & NAME_GLUE}
             if shared and df and any(df(t) <= LATER_RARE_DF for t in shared):
                 return new
+        for new in later:
+            # 没有语义模型时也认数字变了：「存了2万」→「存到5万了」共有问句里的「存」。
+            if same_subject(piece['text'], new['text'], query):
+                return dict(new, number_update=True)
         if self.embedder:
             vectors, _ = self._vectors(scope, [piece] + later)
             base = vectors[0]
@@ -1021,7 +1050,7 @@ class Retriever:
         if focus and candidates:
             # 拷问集二批问题 3：新说法排到旧说法前面，旧的标「以新的为准」。
             newer = newer_versions(candidates, df if informative is not None else None,
-                                   total if informative is not None else 0, informative)
+                                   total if informative is not None else 0, informative, query)
             for old_id, new_piece in newer.items():
                 ids = [p['event_id'] for p in candidates]
                 if old_id in ids and new_piece['event_id'] in ids \
@@ -1061,6 +1090,8 @@ class Retriever:
         followed = 0
         for piece in candidates:
             if is_echo(piece, query):continue
+            # 自动提醒只递用户自己的原话：她当时的回应（「我一直在」）会把旁边的伤心事一起带出来。
+            if strict and piece.get('role') == 'assistant':continue
             # 已作为别的行的「前一句 / 回答」带出来过的，不再出第二次（真实档案里同一行出现了两遍）。
             if any(p['event_id'] == piece['event_id'] and p['start'] == piece['start'] for p in selected):continue
             # 一字不差的重复（每天都说一遍的「下班路上看到橘猫」）只留排在最前的那条，别占掉证据的位置。
@@ -1073,7 +1104,9 @@ class Retriever:
                     and not own_single_match(piece, singles) \
                     and piece['event_id'] not in {p['event_id'] for p in newer.values()} \
                     and not any(e in piece['text'] for e in long_extra) \
-                    and (strict or kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD))):continue
+                    and (strict or (piece.get('role') == 'assistant' and not her_words)
+                         or kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD))):continue
+            # ↑ 没有共同词时只猜用户自己的原话：她的回应（「我一直在」）一被猜中，就会把前一句伤心事带出来。
             kept += 1
             if dedup:
                 grams=bigrams(piece['text'])
@@ -1105,7 +1138,10 @@ class Retriever:
                 prompt = self._prompt_before(scope, piece['event_id'])
                 if prompt and not is_echo(prompt, query) \
                         and not any(p['event_id'] == prompt['event_id'] for p in selected):
-                    prompt_line = render_line(prompt) + stale_flag(prompt)
+                    prompt_line = render_line(prompt) + (stale_flag(prompt) or (
+                        '｜之后有更新的说法，以新的为准' if any(
+                            c.get('role') == 'user' and _moment_key(c) > _moment_key(prompt)
+                            and same_subject(prompt['text'], c['text'], query) for c in candidates) else ''))
                     if fits(prompt_line):
                         selected.append(prompt)
             follow = None
