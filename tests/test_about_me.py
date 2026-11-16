@@ -39,5 +39,20 @@ class AboutMeTests(WordingBase):
         self.assertIn('unverified_current_highlight', self.auto('我最爱的水果是什么？'))
 
 
+class NamedThingTests(AboutMeTests):
+    def test_a_rare_name_brings_its_news(self):
+        self.chat('我养了条金鱼，叫泡泡。', '泡泡死了，好难过。')
+        self.assertIn('泡泡死了', self.auto('泡泡还好吗？'))
+
+    def test_colloquial_self_word(self):
+        self.chat('我老家在湖南岳阳，洞庭湖边上。')
+        self.assertIn('岳阳', self.auto('俺老家是哪的来着？'))
+
+    def test_everyday_words_are_not_names(self):
+        self.chat('今天天气好好，出去晒了会太阳。')
+        self.assertEqual(self.auto('天气怎么样了？'), '')
+        self.assertEqual(self.auto('今天怎么样了？'), '')
+
+
 if __name__ == '__main__':
     unittest.main()

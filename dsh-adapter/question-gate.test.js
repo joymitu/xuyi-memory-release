@@ -32,3 +32,12 @@ test('asking for help, asking her, or plain chat is not an about-me question', (
     assert.equal(isAboutMe(text), false, text);
   }
 });
+
+test('colloquial self words and a named pet or friend pass the about-me gate', () => {
+  for (const text of ['俺老家是哪的来着？', '咱家狗叫啥', '泡泡还好吗？', '阿花最近怎么样']) {
+    assert.equal(isAboutMe(text), true, text);
+  }
+  for (const text of ['天气怎么样？', '你最近还好吗', '我们最近怎么样了']) {
+    assert.equal(isAboutMe(text), false, text);
+  }
+});

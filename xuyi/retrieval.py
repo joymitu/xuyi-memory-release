@@ -646,6 +646,12 @@ class Retriever:
         if not scope.startswith("qq:c2c:") or HISTORY_QUERY.search(query) or OTHER_OWNER.search(query) \
                 or _asks_someone_else(query):
             return None
+        if not re.search(r"我|俺|咱", query):
+            # 「泡泡还好吗」：只有问到档案里的专名（很少几句提过）才找；「天气怎么样」不翻旧账。
+            name = re.match(r"[㐀-鿿A-Za-z]{1,6}?(?=还好|怎么样|最近|现在)", query.strip())
+            df = index.document_frequency(self.store, scope, name.group(0)) if name else 0
+            if not name or len(name.group(0)) < 2 or name.group(0) in MUNDANE or not 0 < df <= RARE_DF:
+                return None
         found = self.recall(scope, query, min(budget, ABOUT_ME_BUDGET), focus=True, strict=True)
         if not found['sources'] or found.get('mode') == 'span-empty':
             return None

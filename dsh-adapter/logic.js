@@ -25,11 +25,14 @@ const nameChange = /别叫|不要叫|改叫|改名|取个名字|起个名字/;
 // tests/fixtures/memory_questions.json 两边共用，Node 和 Python 测试都会检查。
 // 问的是用户自己的事（「我老公叫啥」「我多高」「我还抽烟吗」）：六类重点不管的，也自动带上有共同词的原话。
 // 求助/求推荐（「我该怎么办」「给我推荐…」）不算：那是要建议，不是问记忆。
-const aboutMeQuestion = /^[^。！!？?，,]{0,8}?我(?!们)[^。！!？?你]{0,16}?(?:什么|啥|哪|谁|多少|几|多(?:高|重|大|久|远)|吗|么|没有?|了没|怎么样|咋样|干嘛)[^。！!？?，,]{0,6}[？?]?\s*$/;
+const aboutMeQuestion = /^[^。！!？?，,]{0,8}?(?:我(?!们)|俺(?!们)|咱(?!们))[^。！!？?你]{0,16}?(?:什么|啥|哪|谁|多少|几|多(?:高|重|大|久|远)|吗|么|没有?|了没|怎么样|咋样|干嘛)[^。！!？?，,]{0,6}[？?]?\s*$/;
 const notAboutMe = /怎么办|该|要不要|帮我|给我|推荐|建议|你觉得|你说我|教我|可以吗|行吗|好吗|对吧|是吧/;
 
+// 问某个有名字的人/宠物近况（「泡泡还好吗」「阿花最近怎么样」）。名字是不是档案里的专名，由核心再查一遍。
+const howIsIt = /^[^你我俺咱。！!？?，,\s]{1,6}(?:还好吗|还好不|怎么样了|最近怎么样|最近还好吗|现在怎么样)[？?]?\s*$/;
+
 export function isAboutMe(text) {
-  return aboutMeQuestion.test(text) && !notAboutMe.test(text);
+  return (aboutMeQuestion.test(text) && !notAboutMe.test(text)) || howIsIt.test(text);
 }
 
 export function isMemoryQuestion(text) {
