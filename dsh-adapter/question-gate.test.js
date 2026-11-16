@@ -41,3 +41,13 @@ test('colloquial self words and a named pet or friend pass the about-me gate', (
     assert.equal(isAboutMe(text), false, text);
   }
 });
+
+test('opinion questions, small talk and "what did I just say" do not trigger about-me recall', () => {
+  for (const text of ['我好看吗', '我今天穿这个好看吗？', '我这样做对吗？', '我明天几点起床好呢', '我现在出门来得及吗',
+    '我是谁？', '我在哪？', '我刚刚说什么来着？', '我没钱了', '你知道我在想什么吗', '我多久没见你了']) {
+    assert.equal(isAboutMe(text), false, text);
+  }
+  for (const text of ['我在哪上班来着？', '我的车怎么了？', '我膝盖怎么了？']) {
+    assert.equal(isAboutMe(text), true, text);
+  }
+});
