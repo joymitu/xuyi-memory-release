@@ -76,7 +76,7 @@ export function pickBubbleCount(text, recent = [], random = Math.random) {
 
 export function bubbleHint(count) {
   const words = { 1: '这一轮只发一条', 2: '这一轮发两条', 3: '这一轮发三条' };
-  return `${words[count]}，每条一行。他问的事要是一条说不清，就按需要来。`;
+  return `${words[count]}，每条一行。对方问的事要是一条说不清，就按需要来。`;
 }
 
 function checkedContext(result, budget) {
@@ -397,7 +397,7 @@ export function notePrompt(request) {
   const facts = noteFacts(request);
   const lines = facts.map((fact, i) => `${i + 1}. ${fact.fact.trim()}`).join('\n');
   return `现在请你写便利贴。下面 ${facts.length} 条是你刚想起来的事。用你平时说话的口吻，一条写成一张便利贴上的短句。\n`
-    + '规矩：一条一张，一张一行。每张 15 到 35 个字——写清「他说的哪件事」加上「你的反应或答案」，'
+    + '规矩：一条一张，一张一行。每张 15 到 35 个字——写清「对方说的哪件事」加上「你的反应或答案」，'
     + '别只写一个词、一个名字或半句话；便利贴不是发消息，可以比聊天时多说几个字。'
     + '只写纸条上的话，不编号、不加引号、不解释、不寒暄。\n\n'
     + lines;

@@ -308,7 +308,7 @@ class PersonaPresetTests(unittest.TestCase):
                 self.assertNotIn(banned, prompt, f"{name}: {banned}")
             # 有分寸段（AI 味反模式）；「一句话别回五行、别老反问、意见最多一条」2026-11-11 起挪进
             # 所有人设共用的 CHAT_STYLE，每个人设都会带上。
-            self.assertIn("【他不同状态时】", prompt, name)
+            self.assertIn("【对方不同状态时】", prompt, name)
             from xuyi.personas import CHAT_STYLE
             self.assertIn("对话的分寸", CHAT_STYLE)
             # 无公认 AI 套话

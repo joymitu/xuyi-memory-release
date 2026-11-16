@@ -382,7 +382,7 @@ class ResumeExchangeTests(unittest.TestCase):
         self.assertIn('unverified_resume', out['context'])
         record = next(line for line in out['context'].split('\n') if 'unverified_resume' in line)
         self.assertIn('我：我这边也冷', record)        # 她自己说过的话也在，接着聊才不会自相矛盾
-        self.assertIn('他：又在瞎编了', record)
+        self.assertIn('对方：又在瞎编了', record)
         self.assertIn('10分钟前', record)               # 真实时钟下分钟级
 
     def test_the_guide_tells_her_not_to_say_long_time_no_see_after_a_minutes_old_chat(self):

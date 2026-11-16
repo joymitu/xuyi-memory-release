@@ -10,7 +10,7 @@ import yaml
 from xuyi.personas import (CHAT_STYLE, FACT_RULES, GROUP_STYLE, apply_persona, compose_group_prompt, compose_prompt,
                            list_personas, load_persona, persona_status)
 
-SECTIONS = ("【你是谁】", "【性格和说话】", "【他不同状态时】", "【例子】")
+SECTIONS = ("【你是谁】", "【性格和说话】", "【对方不同状态时】", "【例子】")
 
 
 def profile_with(config=None):

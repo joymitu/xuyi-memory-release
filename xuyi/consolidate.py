@@ -182,7 +182,7 @@ def _last_thread(store, scope, events, max_chars=40, current=None):
     # sides show what they were actually talking about and what she herself said.
     recent = [event for event in events if session_of(event) == previous
               and event["role"] in ("user", "assistant") and event["text"].strip()][-4:]
-    exchange = [("他：" if event["role"] == "user" else "我：")
+    exchange = [("对方：" if event["role"] == "user" else "我：")
                 + " ".join(event["text"].split())[:18] + ("…" if len(" ".join(event["text"].split())) > 18 else "")
                 for event in recent]
     return {"摘要": summary, "来源": last_user, "最后几句": exchange, "结束于": recent[-1]["recorded_at"],

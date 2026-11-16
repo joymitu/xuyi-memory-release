@@ -205,7 +205,7 @@ def _note_seeds(store, scope, peer, events, superseded, today, limit, loops):
         gist = found[0]["值"] if found else _quote(recalled, 16)
         asked = _short(query.rstrip("？?。！!"), 12)
         notes.append({"kind": "recall", "at": at[:16].replace("T", " "),
-                      "fact": f"他刚问你「{asked}」，你想起来：{gist}",
+                      "fact": f"TA刚问你「{asked}」，你想起来：{gist}",
                       "text": f"你问我「{asked}」——想起来啦：{gist}～", "quote": _quote(recalled),
                       "event_id": recalled["event_id"]})
         if len([n for n in notes if n["kind"] == "recall"]) >= 3:
@@ -213,17 +213,17 @@ def _note_seeds(store, scope, peer, events, superseded, today, limit, loops):
     for family in (FAMILIES[0], FAMILIES[1]):
         for pair in family.suspected_pairs(peer, events, superseded):
             notes.append({"kind": "confirm",
-                          "fact": f"他先说「{pair['旧值']}」，后来说「{pair['新值']}」，到底哪个还没确认",
+                          "fact": f"TA先说「{pair['旧值']}」，后来说「{pair['新值']}」，到底哪个还没确认",
                           "text": f"你说过「{pair['旧值']}」，后来又说「{pair['新值']}」……到底是哪个呀？",
                           "event_id": pair["新来源"]})
     for loop in loops[-3:]:
-        notes.append({"kind": "followup", "fact": f"他提过想{loop['值']}，还没下文",
+        notes.append({"kind": "followup", "fact": f"TA提过想{loop['值']}，还没下文",
                       "text": f"你说想{loop['值']}，后来怎么样啦？找机会问问你～",
                       "event_id": loop["来源"]["event_id"]})
     for row in upcoming(store, scope, today=today, events=events)[:2]:
         if row["date"]:
             when = "今天" if row["date"] == today.isoformat() else row["时间"]
-            notes.append({"kind": "plan", "fact": f"{when}他和{row['who']}有约",
+            notes.append({"kind": "plan", "fact": f"{when}TA和{row['who']}有约",
                           "text": f"{when}和{row['who']}有约，记得提醒你一下。",
                           "event_id": row["event_id"]})
     # 今天聊过的事也要贴上（用户要的）：不管有没有重点事实，都取今天最像"一件事"的一两句。
@@ -277,7 +277,7 @@ def pick_topics(candidates, limit=2, when="今天"):
         picked.append(said)
         topics.append({"kind": "topic",
                        "at": (event.get("recorded_at") or "")[:16].replace("T", " "),
-                       "fact": f"他{when}提到：{said}",
+                       "fact": f"TA{when}提到：{said}",
                        "text": f"你说「{_short(said, 18)}」，我记着呢。",
                        "event_id": event["event_id"]})
         if len(picked) >= limit:

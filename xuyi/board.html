@@ -649,6 +649,7 @@ function personaBlock(box, sayId, { kicker = '', onSaved } = {}) {
     + '</div>').join('');
   const saved = s.persona?.configured;
   const current = saved ? `正在用<b>${esc(s.persona.label)}</b>。`
+    + (s.persona.outdated ? `这个预设有新版了（不再默认你是男生），点一下「${esc(s.persona.label)}」就能更新。` : '')
     + (bindState?.phase === 'bound' ? '' : '绑定 QQ 后会使用这份人设。') : '';
   box.innerHTML = (kicker ? `<div class="wiz-kicker">${kicker}</div><h3>选TA的样子</h3>`
       : `<h3>TA的样子${saved ? '<span class="ok">✓ 已保存</span>' : ''}</h3>`)
@@ -717,7 +718,11 @@ function personaBlock(box, sayId, { kicker = '', onSaved } = {}) {
   };
   const nameOf = body => body.name ? `「${choices.find(p => p.name === body.name)?.label ?? body.name}」` : '你写的这份人设';
   const switchTo = (body, statusId = sayId) => {
-    if (saved && s.persona?.name && body.name === s.persona.name) { say(statusId, `现在用的就是「${s.persona.label}」。`); return; }
+    if (saved && s.persona?.name && body.name === s.persona.name) {
+      if (!s.persona.outdated) { say(statusId, `现在用的就是「${s.persona.label}」。`); return; }
+      ask(`把「${s.persona.label}」更新成新版吗？新版不再默认你是男生，其他不变。`, () => choose(body, statusId));
+      return;
+    }
     if (body.own && usingOwn && body.own === s.persona?.own_id) { say(statusId, '现在用的就是这份。'); return; }
     ask(`把TA换成${nameOf(body)}吗？${saved ? `现在用的是「${s.persona.label}」。` : ''}${keepNote}`,
       () => choose(body, statusId));
