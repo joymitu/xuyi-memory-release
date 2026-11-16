@@ -172,6 +172,7 @@ def render_line(piece, today=None):
 
 expansion_rounds = 3
 AUTO_RELATED_BUDGET = 300
+ABOUT_ME_BUDGET = 600      # 问自己的事时自动带的原话，最多这么多（字节），免得把提示词撑大
 RARE_DF = 8
 MUNDANE = {"天气", "时间", "时候", "东西", "问题", "地方", "感觉", "事情", "事情",
            "工作", "学习", "吃饭", "睡觉", "视频", "照片", "表情", "今天", "明天",
@@ -613,6 +614,20 @@ class Retriever:
                 'origin': event['origin'], 'recorded_at': event['recorded_at'], 'start': 0,
                 'end': len(event['text']), 'text': event['text']}
 
+    def _about_me(self, scope, query, budget):
+        """自动提醒的第二步：问的是用户自己的事（「我老公叫啥」「我多高」），六类重点都不管，
+        就按模型主动查记忆的办法找一遍，但只要和问题有实质共同词的原话，一条猜的都不给。"""
+        from .highlights import HISTORY_QUERY, OTHER_OWNER, _asks_someone_else
+        if not scope.startswith("qq:c2c:") or HISTORY_QUERY.search(query) or OTHER_OWNER.search(query) \
+                or _asks_someone_else(query):
+            return None
+        found = self.recall(scope, query, min(budget, ABOUT_ME_BUDGET), focus=True, strict=True)
+        if not found['sources'] or found.get('mode') == 'span-empty':
+            return None
+        context = found['context'].replace(TOOL_RULE, '', 1)
+        return {'context': context, 'sources': found['sources'], 'budget': budget,
+                'used': self.counter.count(context), 'unit': self.counter.unit}
+
     def _later_mention(self, scope, piece, query, df=None, skip=()):
         """这件旧事后来又被提到的那句（最新的一句），没有就 None。
 
@@ -751,7 +766,8 @@ class Retriever:
         return [window[i] for i in fused[:take]], new_vectors
 
     def recall(self, scope, query, budget=6000, sender_id=None, limit=32, *, highlight_only=False,
-               dedup=0.0, expansion=False, related=False, ordinal=False, focus=False):
+               dedup=0.0, expansion=False, related=False, ordinal=False, focus=False,
+               about_me=False, strict=False):
         if isinstance(budget,bool) or not isinstance(budget,int) or budget<0:raise MemoryError('预算必须是非负整数')
         if not isinstance(query,str):raise MemoryError('问题必须是字符串')
         if not isinstance(limit,int) or not 1<=limit<=256:raise MemoryError('候选上限必须为1至256')
@@ -822,6 +838,10 @@ class Retriever:
                         selected.append(extra)
                     omitted = set(replaced) | {event['event_id'] for event in source_events}
         if highlight_only:
+            if not lines and about_me:
+                mine = self._about_me(scope, query, budget)
+                if mine:
+                    return mine
             if not lines and related:
                 df = lambda term: index.document_frequency(self.store, scope, term)
                 fallback = auto_remember(self.store, scope, query, budget=min(budget, AUTO_RELATED_BUDGET),
@@ -1053,7 +1073,7 @@ class Retriever:
                     and not own_single_match(piece, singles) \
                     and piece['event_id'] not in {p['event_id'] for p in newer.values()} \
                     and not any(e in piece['text'] for e in long_extra) \
-                    and kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD)):continue
+                    and (strict or kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD))):continue
             kept += 1
             if dedup:
                 grams=bigrams(piece['text'])

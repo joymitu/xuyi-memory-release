@@ -23,6 +23,15 @@ const nameChange = /别叫|不要叫|改叫|改名|取个名字|起个名字/;
 
 // 和 Python 侧家族问句（xuyi/highlights.py 各 QUERY）要一起改：这里不放行，自动召回就不会发生。
 // tests/fixtures/memory_questions.json 两边共用，Node 和 Python 测试都会检查。
+// 问的是用户自己的事（「我老公叫啥」「我多高」「我还抽烟吗」）：六类重点不管的，也自动带上有共同词的原话。
+// 求助/求推荐（「我该怎么办」「给我推荐…」）不算：那是要建议，不是问记忆。
+const aboutMeQuestion = /^[^。！!？?，,]{0,8}?我(?!们)[^。！!？?你]{0,16}?(?:什么|啥|哪|谁|多少|几|多(?:高|重|大|久|远)|吗|么|没有?|了没|怎么样|咋样|干嘛)[^。！!？?，,]{0,6}[？?]?\s*$/;
+const notAboutMe = /怎么办|该|要不要|帮我|给我|推荐|建议|你觉得|你说我|教我|可以吗|行吗|好吗|对吧|是吧/;
+
+export function isAboutMe(text) {
+  return aboutMeQuestion.test(text) && !notAboutMe.test(text);
+}
+
 export function isMemoryQuestion(text) {
   return memoryQuestion.test(text) || dietQuestion.test(text);
 }
@@ -35,7 +44,7 @@ function userText(message, acceptAny = false) {
   const query = raw.trim();
   if (Array.from(query).length > 120 || nameChange.test(query)) return '';
   return acceptAny ? query
-    : (isMemoryQuestion(query) ? query : '');
+    : (isMemoryQuestion(query) || isAboutMe(query) ? query : '');
 }
 
 // How many chat bubbles to send this turn. Language models are poor dice: left alone they settle on
@@ -1052,7 +1061,8 @@ export function create(ctx, config = {}, host) {
     try {
       const args = query
         ? ['recall', scope, '--highlight-only', '--budget', String(autoBudget),
-           ...(config.autoRelated === true ? ['--related'] : []), '--', query]
+           ...(config.autoRelated === true ? ['--related'] : []),
+           ...(isAboutMe(query) ? ['--about-me'] : []), '--', query]
         : ['snapshot', scope, '--budget', String(snapshotBudget), '--session', String(sessionId)];
       const budget = query ? autoBudget : snapshotBudget;
       const result = await callCore(runtime, dbPath, args, undefined, lookupSignal);

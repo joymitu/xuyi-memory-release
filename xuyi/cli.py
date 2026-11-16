@@ -26,6 +26,7 @@ def main():
     recall.add_argument('--sender',help='仅查询这个稳定发言人ID')
     recall.add_argument('--highlight-only',action='store_true',help='仅回忆有原话的当前重点')
     recall.add_argument('--related',action='store_true',help='无重点时按话题稀有实体回退一条相关旧话')
+    recall.add_argument('--about-me',action='store_true',help='无重点时，问的是用户自己的事就带上有共同词的原话')
     recall.add_argument('--focus',action='store_true',help='只返回与问题有实质共同词的证据（模型主动查询用）')
     recall.add_argument('--ordinal',action='store_true',help='编号事实清单中旧事实附上最新事实原文（序号冲突规则）')
     for name in ('get','forget'):
@@ -224,7 +225,8 @@ def main():
                         fallback=f'语义模型不可用，已改用词法检索：{exc}'
                 counter=TokenizerCounter(args.tokenizer) if args.tokenizer else None
                 result=Retriever(store,embedder,counter).recall(args.scope,args.query,args.budget,args.sender,
-                    highlight_only=args.highlight_only,related=args.related,ordinal=args.ordinal,focus=args.focus)
+                    highlight_only=args.highlight_only,related=args.related,ordinal=args.ordinal,focus=args.focus,
+                    about_me=args.about_me)
                 if fallback and isinstance(result.get('warnings'),list):result['warnings'].insert(0,fallback)
         print(json.dumps(result,ensure_ascii=False,indent=2))
     except (MemoryError,OSError,sqlite3.Error,json.JSONDecodeError) as exc:
