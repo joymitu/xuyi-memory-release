@@ -86,6 +86,9 @@ class Store:
                 PRIMARY KEY(scope,version,event_id),
                 FOREIGN KEY(scope,version) REFERENCES state_versions(scope,version) ON DELETE CASCADE);
             CREATE INDEX IF NOT EXISTS state_refs_by_event ON state_refs(scope,event_id);
+            CREATE TABLE IF NOT EXISTS members(
+                scope TEXT NOT NULL,sender_id TEXT NOT NULL,name TEXT NOT NULL,seen_at TEXT NOT NULL,
+                PRIMARY KEY(scope,sender_id));
         """)
         if self.db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] != "1":
             self.db.close()
@@ -112,6 +115,16 @@ class Store:
         self.close()
 
     def _add(self, event):
+        # 群消息附带发言人的群昵称：记进成员表（编号 → 最新昵称），消息本身的格式不变。
+        if isinstance(event, dict) and "sender_name" in event:
+            name = event["sender_name"]
+            event = {key: value for key, value in event.items() if key != "sender_name"}
+            if (isinstance(name, str) and name.strip() and len(name) <= 40
+                    and str(event.get("scope", "")).startswith("qq:group:") and event.get("role") == "user"):
+                self.db.execute("INSERT INTO members(scope,sender_id,name,seen_at) VALUES(?,?,?,?) "
+                                "ON CONFLICT(scope,sender_id) DO UPDATE SET name=excluded.name, seen_at=excluded.seen_at "
+                                "WHERE excluded.seen_at >= members.seen_at",
+                                (event["scope"], str(event.get("sender_id")), name.strip(), str(event.get("recorded_at"))))
         event = validate_event(event)
         key = (event["scope"], event["event_id"])
         if self.db.execute("SELECT 1 FROM tombstones WHERE scope=? AND event_id=?", key).fetchone():
@@ -145,6 +158,11 @@ class Store:
 
     def events(self, scope):
         return [json.loads(row[0]) for row in self.db.execute("SELECT payload FROM events WHERE scope=? ORDER BY seq", (scope,))]
+
+    def member_names(self, scope):
+        """群成员编号 → 最新群昵称。"""
+        return {sender: name for sender, name in self.db.execute(
+            "SELECT sender_id,name FROM members WHERE scope=?", (scope,))}
 
     def scopes(self):
         return [r[0] for r in self.db.execute("SELECT DISTINCT scope FROM events ORDER BY scope")]

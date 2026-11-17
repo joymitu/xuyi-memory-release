@@ -28,6 +28,8 @@ def main():
     recall.add_argument('--related',action='store_true',help='无重点时按话题稀有实体回退一条相关旧话')
     recall.add_argument('--about-me',action='store_true',help='无重点时，问的是用户自己的事就带上有共同词的原话')
     recall.add_argument('--her',action='store_true',help='问她自己的喜好时，带上她以前对同一问题的回答（前后一致）')
+    recall.add_argument('--group',action='store_true',help='群里的自动提醒：只查本群，最多两条，写明是谁说的')
+    recall.add_argument('--speaker',help='群里正在说话的成员编号（问「我…」时只查这个人说过的话）')
     recall.add_argument('--focus',action='store_true',help='只返回与问题有实质共同词的证据（模型主动查询用）')
     recall.add_argument('--ordinal',action='store_true',help='编号事实清单中旧事实附上最新事实原文（序号冲突规则）')
     for name in ('get','forget'):
@@ -245,7 +247,7 @@ def main():
                 counter=TokenizerCounter(args.tokenizer) if args.tokenizer else None
                 result=Retriever(store,embedder,counter).recall(args.scope,args.query,args.budget,args.sender,
                     highlight_only=args.highlight_only,related=args.related,ordinal=args.ordinal,focus=args.focus,
-                    about_me=args.about_me,her=args.her)
+                    about_me=args.about_me,her=args.her,group=args.group,speaker=args.speaker)
                 if fallback and isinstance(result.get('warnings'),list):result['warnings'].insert(0,fallback)
         print(json.dumps(result,ensure_ascii=False,indent=2))
     except (MemoryError,OSError,sqlite3.Error,json.JSONDecodeError) as exc:

@@ -172,7 +172,13 @@ def render_line(piece, today=None):
 
 expansion_rounds = 3
 AUTO_RELATED_BUDGET = 300
+GROUP_LINES = 2            # 群里一次最多递几条原话
+GROUP_HEADER = HEADER + "以下是这个群里的聊天记录，只在本群用；[ ] 里是谁说的。\n"
+# 群里不当众说的私事（本人问自己的除外）：心情、身体、感情、钱、家里的事。
+GROUP_PRIVATE = re.compile(r"难过|伤心|哭|焦虑|抑郁|失眠|崩溃|压力|孤单|委屈|医院|看医生|吃药|生病|病了|住院|手术|体检|怀孕|"
+                           r"过敏|不耐受|忌口|分手|离婚|吵架|失恋|前任|工资|月薪|存款|存了|欠钱|借钱|房贷|去世|走了")
 HER_ANSWER_LIMIT = 2
+HER_ROOM_LIMIT = 30         # 找她自己的喜好时，最多再看这么多个别的聊天
 # 问她喜好时的壳：「你最喜欢什么X」里能用来对上以前那句问话的只有 X。
 HER_QUESTION_SHELL = {"最喜", "喜欢", "欢什", "你最", "最爱", "爱吃", "爱喝", "你喜", "你爱"}
 ABOUT_ME_BUDGET = 600      # 问自己的事时自动带的原话，最多这么多（字节），免得把提示词撑大
@@ -630,25 +636,92 @@ class Retriever:
         所以不按词找回答，而是找以前那句问话，再取紧跟着的回答。
         """
         from .highlights import asks_her
-        if not asks_her(query) or not scope.startswith("qq:c2c:") or not index.fresh(self.store, scope):
+        if not asks_her(query) or not scope.startswith(("qq:c2c:", "qq:group:")):
             return []
-        total = index.chunk_count(self.store, scope) or 0
-        df = lambda term: index.document_frequency(self.store, scope, term)
-        wanted = informative_terms(query, df, total) - HER_QUESTION_SHELL
-        if not wanted:
-            return []
-        asking = self._latest_user_event(scope)
+        # 她在哪儿都是同一个人：私聊里说最爱海苔，群里也该是海苔。所以各个房间都找，
+        # 但只取她自己的回答；别的房间里那句问话不带出来（那是别处的聊天）。
+        rooms = [scope] + [other for other in self.store.scopes()
+                           if other != scope and other.startswith(("qq:c2c:", "qq:group:"))][:HER_ROOM_LIMIT]
         found, seen = [], set()
-        for piece in index.ranked_pieces(self.store, scope, ASK_SHELL.sub(' ', query), 60):
-            if piece.get('role') != 'user' or piece['event_id'] == asking or not asks_her(piece['text']) \
-                    or not wanted & set(terms(piece['text'])):
+        for room in rooms:
+            if not index.fresh(self.store, room):
                 continue
-            reply = self._reply_after(scope, piece['event_id'], min_len=1)
-            if reply and reply['text'] not in seen:
-                seen.add(reply['text'])
-                found.append((piece, reply))
+            total = index.chunk_count(self.store, room) or 0
+            df = lambda term, room=room: index.document_frequency(self.store, room, term)
+            wanted = informative_terms(query, df, total) - HER_QUESTION_SHELL
+            if not wanted:
+                continue
+            asking = self._latest_user_event(room) if room == scope else None
+            for piece in index.ranked_pieces(self.store, room, ASK_SHELL.sub(' ', query), 60):
+                if piece.get('role') != 'user' or piece['event_id'] == asking or not asks_her(piece['text']) \
+                        or not wanted & set(terms(piece['text'])):
+                    continue
+                reply = self._reply_after(room, piece['event_id'], min_len=1)
+                if reply and reply['text'] not in seen:
+                    seen.add(reply['text'])
+                    found.append((piece if room == scope else None, reply))
         found.sort(key=lambda pair: _moment_key(pair[1]), reverse=True)
         return found[:limit]
+
+    @staticmethod
+    def _her_line(asked, reply):
+        where = f"你以前被问「{asked['text'].strip()}」时的回答" if asked else "你以前在别处说过的自己的喜好"
+        return render_line(reply) + f"｜这是{where}；这次说法要和它一致"
+
+    def _group_recall(self, scope, query, speaker, budget, her=False):
+        """群里的自动提醒：只查这个群；最多 GROUP_LINES 条，每条写明是谁说的。
+
+        - 问的是「我…」：只查正在说话的这个人自己说过的话；
+        - 点了某个群友的名字（「小王养了啥」）：只查那个群友说过的话；
+        - 问她自己的喜好：带上她以前的回答（各个聊天里找，她是同一个人）；
+        - 不是本人在问的话，心情、病、感情、钱这类私事不当众递出去。
+        """
+        empty = {'context': '', 'sources': [], 'budget': budget, 'used': 0, 'unit': self.counter.unit}
+        from .highlights import asks_her
+        if not scope.startswith("qq:group:") or not query.strip():
+            return empty
+        names = self.store.member_names(scope)
+        lines, sources = [], []
+        used = self.counter.count(GROUP_HEADER)
+
+        def add(line, piece):
+            nonlocal used
+            cost = self.counter.count(line) + 1
+            if len(lines) >= GROUP_LINES or used + cost > budget:
+                return False
+            used += cost
+            lines.append(line)
+            sources.append(piece)
+            return True
+
+        if asks_her(query):
+            if her:
+                for asked, reply in self._her_answers(scope, query):
+                    add(self._her_line(asked, reply), reply)
+        else:
+            target = speaker if speaker and re.search(r"我|俺|咱", query) else None
+            if target is None:
+                for sender, name in sorted(names.items(), key=lambda pair: -len(pair[1])):
+                    if len(name) >= 2 and name in query:
+                        target = sender
+                        break
+            found = self.recall(scope, ASK_SHELL.sub(' ', query).strip() or query, 1600,
+                                sender_id=target, focus=True, strict=True, speaker=speaker)
+            for piece in found['sources']:
+                if piece.get('role') != 'user' or piece.get('answer_to'):
+                    continue
+                if GROUP_PRIVATE.search(piece['text']) and not (speaker and piece['sender_id'] == speaker):
+                    continue   # 别人的私事不当众说；本人问自己的事可以
+                who = names.get(piece['sender_id'], '群友')
+                line = render_line(piece).replace(f"| {str(piece['sender_id'])[:16]}]", f"| {who}]", 1)
+                if not add(line, piece):
+                    break
+        if not lines:
+            return empty
+        context = GROUP_HEADER + '\n' + '\n'.join(lines)
+        self._log(scope, query, sources)
+        return {'context': context, 'sources': sources, 'budget': budget,
+                'used': self.counter.count(context), 'unit': self.counter.unit}
 
     def _her_own(self, scope, query, budget):
         """自动提醒：问她自己的喜好时，把她以前的回答递给她，这次说法要一致。"""
@@ -658,7 +731,7 @@ class Retriever:
         lines, sources = [], []
         used = self.counter.count(HEADER)
         for asked, reply in pairs:
-            line = render_line(reply) + f"｜这是你以前被问「{asked['text'].strip()}」时的回答；这次说法要和它一致"
+            line = self._her_line(asked, reply)
             cost = self.counter.count(line) + 1
             if used + cost > min(budget, ABOUT_ME_BUDGET):
                 break
@@ -854,9 +927,11 @@ class Retriever:
 
     def recall(self, scope, query, budget=6000, sender_id=None, limit=32, *, highlight_only=False,
                dedup=0.0, expansion=False, related=False, ordinal=False, focus=False,
-               about_me=False, strict=False, her=False):
+               about_me=False, strict=False, her=False, group=False, speaker=None):
         if isinstance(budget,bool) or not isinstance(budget,int) or budget<0:raise MemoryError('预算必须是非负整数')
         if not isinstance(query,str):raise MemoryError('问题必须是字符串')
+        if group:
+            return self._group_recall(scope, query, speaker, budget, her)
         if not isinstance(limit,int) or not 1<=limit<=256:raise MemoryError('候选上限必须为1至256')
         if not isinstance(dedup,(int,float)) or not 0<=dedup<1:raise MemoryError('去冗阈值必须在0到1之间')
         if expansion not in (True,False):raise MemoryError('扩展开关必须是布尔值')
@@ -1087,7 +1162,7 @@ class Retriever:
                 candidates = [p for p in candidates if p.get('role') == 'assistant']
                 # 以前被问过同样的事：她当时的回答排最前（「薯片吧」不带问句里的词，按词找不回来）。
                 for asked, reply in self._her_answers(scope, query):
-                    if fits(render_line(reply) + f"｜这是你以前被问「{asked['text'].strip()}」时的回答；这次说法要和它一致"):
+                    if fits(self._her_line(asked, reply)):
                         selected.append(reply)
             if her_words:
                 # 问的是她说过的话：她自己的原话排前面（稳定排序，原有先后不变）。
@@ -1110,6 +1185,10 @@ class Retriever:
                 candidates = [p for p in candidates if p['event_id'] != asking]
         if focus and candidates:
             candidates = [p for p in candidates if not is_hedge(p)]
+        if focus and candidates and scope.startswith("qq:group:"):
+            # 群里翻记忆：别人的私事（心情、病、感情、钱）不翻出来；正在说话的人问自己的可以。
+            candidates = [p for p in candidates if not (p.get('role') == 'user' and GROUP_PRIVATE.search(p['text'])
+                                                        and p.get('sender_id') != speaker)]
         if focus and candidates:
             # 拷问集二批问题 2：今天问过的问句排在最前、挤掉证据。问句排到证据后面；
             # 她的回答也没内容（「嗯嗯」）的问句直接不要——带回来只会让模型以为"聊过"。
@@ -1260,6 +1339,11 @@ class Retriever:
                 if not fits(canonical({'unverified_state_candidate': record})):break
                 included.append(record)
         context = header+'\n'+'\n'.join(lines) if lines else ''
+        if context and scope.startswith("qq:group:"):
+            # 群里写明是谁说的：成员编号换成群昵称（只换不比编号长的，不会超预算）。
+            for sender, name in self.store.member_names(scope).items():
+                if len(name.encode('utf-8')) <= len(sender[:16]):
+                    context = context.replace(f"| {sender[:16]}]", f"| {name}]")
         used=self.counter.count(context)
         assert used<=budget
         if lines:

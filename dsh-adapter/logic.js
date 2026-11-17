@@ -11,6 +11,7 @@ import { installRhythm } from './rhythm.js';
 const PEER = /^qqbot:[^:]+:c2c:[^:]+$/;
 const toolBudget = 1600;
 const autoBudget = 900;
+const groupBudget = 700;   // 群里一次最多递这么多字节（大约两条原话，一个汉字 3 字节）
 // Windows 上启动 Python 约 2 倍于 macOS（实测单次自动召回约 230ms），给足余量。
 const defaultAutoDeadline = process.platform === 'win32' ? 900 : 450;
 const writeWait = 1500;
@@ -144,6 +145,26 @@ export function parseGroupLines(text) {
   return out;
 }
 
+// 群里这一轮是谁在说话（整段群消息最后一行的成员编号）。
+export function groupSpeaker(message) {
+  const text = (Array.isArray(message?.content) ? message.content : [])
+    .filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n');
+  return parseGroupLines(text).at(-1)?.sender_id ?? null;
+}
+
+// 群里这一轮要回的那句：整段群消息的最后一行（当前消息），谁说的、说了什么；不像在问记忆就不查。
+export function groupQuestion(message) {
+  if (message?.role !== 'user' || message.source?.kind !== 'user' || !Array.isArray(message.content)) return null;
+  const text = message.content.filter(block => block?.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text).join('\n');
+  const current = parseGroupLines(text).at(-1);
+  if (!current) return null;
+  const said = current.text.replace(/[\r\n]+/g, ' ').trim();
+  if (!said || Array.from(said).length > 120 || /[[\]]/.test(said)) return null;
+  if (!(isMemoryQuestion(said) || isAboutMe(said) || isAboutHer(said))) return null;
+  return { speaker: current.sender_id, name: current.sender_name, text: said };
+}
+
 export function archiveGroupEvents(hash, sessionId, event) {
   if (!hash || !Number.isSafeInteger(event?.seq) || event.seq < 0
       || !Number.isFinite(event.time) || Math.abs(event.time) > 8.64e15) return [];
@@ -177,6 +198,8 @@ export function archiveGroupEvents(hash, sessionId, event) {
     scope: 'qq:group:' + hash,
     event_id: 'dsh:' + sessionId + ':' + event.seq + ':' + index,
     sender_id: line.sender_id,
+    // 群昵称进成员表（不进消息本身）：提醒她时写「[小王] 我养了只柯基」，不再只有一串编号。
+    ...(line.sender_name ? { sender_name: line.sender_name } : {}),
     role: 'user',
     origin: 'quoted',
     recorded_at: new Date(event.time).toISOString(),
@@ -744,11 +767,13 @@ export function prepareStateOf(runtime) {
     : { stage: 'waiting', percent: 0, ready: false };
 }
 
-async function toolRecall(runtime, dbPath, scope, budget, query, signal) {
+async function toolRecall(runtime, dbPath, scope, budget, query, signal, speaker = null) {
   const progress = prepareStateOf(runtime);
   const verified = !runtime.prepareRun || progress.ready;
   const model = verified && existsSync(join(runtime.modelDir, 'model.onnx')) ? ['--model', runtime.modelDir] : [];
-  const args = ['recall', scope, '--budget', String(budget), '--focus'];
+  // 群里：带上这一轮是谁在说话（别人的私事不翻给别人看，提醒里写昵称）。
+  const args = ['recall', scope, '--budget', String(budget), '--focus',
+    ...(speaker && /^[0-9A-Fa-f]{16,}$/.test(speaker) ? ['--speaker', speaker] : [])];
   if (model.length && progress.backend === 'mac-standalone') {
     const alternate = runtime.macSemantic;
     if (alternate && existsSync(alternate.python)) {
@@ -1056,8 +1081,8 @@ export function create(ctx, config = {}, host) {
     const turn = state.turns.get(sessionId);
     if (decision.kind !== 'enter' || !turn || turn.toolCalls > 0 || turn.autoUsed || turn.autoContext
         || lifetime.signal.aborted || signal.aborted) return decision;
-    // L1：群里多人说话，自动重点/开场快照容易串；群聊只保留「查得到」（工具），不自动注入。
-    if (turn.peer.startsWith('qq:group:')) return decision;
+    // 群聊：只在她要回话、且这句像在问记忆时，查本群的记忆（不碰私聊）；没有开场快照。
+    const group = turn.peer.startsWith('qq:group:');
     // The host enters this hook right after emitting the user message, so its own write is
     // usually still in flight. Wait for it (bounded); skipping here meant never auto-recalling.
     if (state.queueSize > 0) {
@@ -1072,6 +1097,23 @@ export function create(ctx, config = {}, host) {
     if (!scope || turn.peer !== scope) return decision;
     const users = messages.filter(message => message.source?.kind === 'user');
     if (users.length !== 1 || !decision.messages.includes(users[0])) return decision;
+    if (group) {
+      turn.speaker = groupSpeaker(users[0]);
+      const asked = groupQuestion(users[0]);
+      if (!asked) return decision;
+      const groupSignal = AbortSignal.any([signal, lifetime.signal, AbortSignal.timeout(autoDeadline)]);
+      try {
+        const result = await callCore(runtime, dbPath, ['recall', scope, '--group', '--speaker', asked.speaker,
+          '--budget', String(groupBudget), ...(isAboutHer(asked.text) ? ['--her'] : []), '--', asked.text],
+        undefined, groupSignal);
+        if (!groupSignal.aborted && state.turns.get(sessionId) === turn && scopeOf(sessionId) === scope) {
+          turn.autoContext = checkedContext(result, groupBudget);
+        }
+      } catch {
+        // 查不到就照常回话，工具还能用。
+      }
+      return decision;
+    }
     const query = userText(users[0], config.autoRelated === true);
     if (!query && !turn.snapshot) return decision;
     turn.snapshot = false;
@@ -1116,7 +1158,7 @@ export function create(ctx, config = {}, host) {
     try {
       await state.pending;
       if (state.turns.get(sessionId) !== turn || scopeOf(sessionId) !== scope || signal.aborted) return '会话已切换或查询已取消。';
-      const result = await toolRecall(runtime, dbPath, scope, toolBudget, query, signal);
+      const result = await toolRecall(runtime, dbPath, scope, toolBudget, query, signal, turn.speaker);
       if (state.turns.get(sessionId) !== turn || scopeOf(sessionId) !== scope || signal.aborted) return '会话已切换或查询已取消。';
       return checkedContext(result, toolBudget) || '这次查询没有找到可用原文。';
     } catch {

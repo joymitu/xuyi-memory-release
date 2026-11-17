@@ -1669,3 +1669,48 @@ test('group: her own replies are archived too', () => {
   assert.equal(rows[0].scope, 'qq:group:abc123');
   assert.equal(rows[0].event_id, 'dsh:sess:9');
 });
+
+test('group: memory questions get this group\'s lines with nicknames; chit-chat and private chats stay out', async t => {
+  const folder = mkdtempSync(join(tmpdir(), 'xuyi-group-auto-'));
+  t.after(() => rmSync(folder, { recursive: true }));
+  const prefsPath = join(folder, 'prefs.json');
+  writeFileSync(prefsPath, JSON.stringify({ sessionIds: {
+    'qqbot:bot:group:room': 'room', 'qqbot:bot:c2c:owner': 'owner' } }));
+  const handlers = {};
+  let context, tool;
+  apply({ on: (name, fn) => { handlers[name] = fn; },
+    systemPrompt: { context: spec => { context = spec; } },
+    tools: { register: spec => { tool = spec; } } },
+  { projectDir: dirname(dirname(fileURLToPath(import.meta.url))), dbPath: join(folder, 'memory.sqlite'), prefsPath, sessionSnapshot: false });
+  t.after(() => handlers.dispose());
+  const send = (id, event) => handlers['session/event']({ id }, event);
+  const WANG = 'AAAA0000AAAA0000AAAA', LI = 'BBBB1111BBBB1111BBBB';
+  const line = (name, id, text) => `[${name} (${id})] ${text}`;
+  send('owner', { type: 'turn/start' });
+  send('owner', user(1, '我养了只柯基叫团子，别告诉别人'));
+  send('owner', { type: 'turn/end' });
+  send('room', { type: 'turn/start' });
+  send('room', user(2, line('小王', WANG, '我养了只柯基叫豆豆') + '\n' + line('小李', LI, '我养了只布偶叫雪球')));
+  send('room', { type: 'turn/end' });
+  // 等写入完成：工具查一次就会等队列清空。
+  send('room', { type: 'turn/start' });
+  await tool.execute({ query: '柯基' }, { agent: { id: 'room' } });
+  send('room', { type: 'turn/end' });
+  const ask = async text => {
+    send('room', { type: 'turn/start' });
+    const message = user(9, '[Chat history begins]\n[Chat history ends]\n[Current message]\n' + text).data;
+    const decision = { kind: 'enter', messages: [message] };
+    await handlers['agent/pre-step']({ agent: { id: 'room' }, messages: [message],
+      signal: new AbortController().signal }, async () => decision);
+    const seen = context.text({ agent: { id: 'room' } });
+    send('room', { type: 'turn/end' });
+    return seen;
+  };
+  const mine = await ask(line('小李', LI, '我养的猫叫啥来着？'));
+  assert.match(mine, /小李\] 我养了只布偶叫雪球/);
+  assert.doesNotMatch(mine, /豆豆|团子/);
+  const his = await ask(line('小李', LI, '小王养的狗叫啥？'));
+  assert.match(his, /豆豆/);
+  assert.doesNotMatch(his, /团子/);
+  assert.equal(await ask(line('小李', LI, '哈哈哈今天好累')), '');
+});
