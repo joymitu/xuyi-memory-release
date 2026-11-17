@@ -269,10 +269,17 @@ export function resolveRuntime(config = {}, { env = process.env, home = homedir(
     join(home, 'Documents', 'Codex', 'xuyi-memory')].filter(dir => typeof dir === 'string' && dir.trim());
   const found = candidates.find(dir => exists(venvPython(resolve(dir), platform)));
   const codeDir = join(pkg, 'py');
-  if (!found && exists(join(codeDir, 'xuyi', '__init__.py'))) {
+  // 装进 DSH 的包自带核心时用包里的：早年登记的开发目录（~/.xuyi/project.json）里是旧代码，
+  // 新插件配旧核心会认不得新参数、自动提醒全部失效（1.0.2 模拟测试发现）。只有明确指定的开发目录
+  // （插件配置 projectDir 或环境变量 XUYI_PROJECT_DIR）才连代码一起用开发目录的。
+  const explicit = [config.projectDir, env.XUYI_PROJECT_DIR].filter(dir => typeof dir === 'string' && dir.trim())
+    .find(dir => exists(venvPython(resolve(dir), platform)));
+  if (!explicit && exists(join(codeDir, 'xuyi', '__init__.py'))) {
     const python = [config.python, env.XUYI_PYTHON].find(p => typeof p === 'string' && p.trim())
       ?? (exists(dshPython(home, platform)) ? dshPython(home, platform) : null);
-    const dataDir = resolve(config.dataDir ?? join(home, '.xuyi', 'data'));
+    // 数据接着用原来的：以前在开发目录里聊的，档案在那儿，换成包里的核心也不能「忘了」。
+    const earlier = found && exists(join(resolve(found), 'data', 'dsh-qq.sqlite')) ? join(resolve(found), 'data') : null;
+    const dataDir = resolve(config.dataDir ?? earlier ?? join(home, '.xuyi', 'data'));
     // 语义依赖由 `xuyi prepare` 装进 ~/.xuyi/py-site，量化模型下到 ~/.xuyi/models（见 xuyi/prepare.py）。
     const siteDir = join(home, '.xuyi', 'py-site');
     const macArch = { arm64: 'arm64', x64: 'x86_64' }[arch];

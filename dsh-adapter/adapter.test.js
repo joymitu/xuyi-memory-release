@@ -858,6 +858,20 @@ test('runtime: a registered dev project keeps priority; otherwise the package ru
     assert.equal(found.mode, 'project');
     assert.equal(posix(found.python), posix(venvPython(project, platform)));
     assert.equal(posix(found.dataDir), posix(join(project, 'data')));
+    // 只是早年登记过开发目录（project.json），没有明确指定：包里的核心优先，旧代码不再盖过它；
+    // 数据接着用原来那个目录（里面有聊天档案时），不会「忘了」以前聊的。
+    mkdirSync(join(home, '.xuyi'), { recursive: true });
+    writeFileSync(join(home, '.xuyi', 'project.json'), JSON.stringify({ projectDir: project }));
+    files.add(posix(join(pkg, 'py', 'xuyi', '__init__.py')));
+    found = rt();
+    assert.equal(found.mode, 'packaged');
+    assert.equal(posix(found.dataDir), posix(join(home, '.xuyi', 'data')));   // 那边还没有档案
+    files.add(posix(join(project, 'data', 'dsh-qq.sqlite')));
+    found = rt();
+    assert.equal(found.mode, 'packaged');
+    assert.equal(posix(found.dataDir), posix(join(project, 'data')));
+    assert.equal(rt({}, { XUYI_PROJECT_DIR: project }).mode, 'project');   // 明确指定的才用开发目录的代码
+    rmSync(join(home, '.xuyi', 'project.json'));
     // 既没有项目也没有包内代码（直接从源码目录加载）：退回旧行为。
     files.clear();
     assert.equal(rt().mode, 'project');
