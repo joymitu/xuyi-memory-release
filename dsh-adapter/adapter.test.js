@@ -1741,3 +1741,12 @@ test('group: memory questions get this group\'s lines with nicknames; chit-chat 
   assert.doesNotMatch(his, /团子/);
   assert.equal(await ask(line('小李', LI, '哈哈哈今天好累')), '');
 });
+
+test('diary: in a narrow window the date list folds into the page title instead of stacking on top', () => {
+  const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
+  const narrow = page.slice(page.indexOf('@media (max-width: 1180px)'), page.indexOf('@media (max-width: 760px)'));
+  assert.match(narrow, /\.spine \{ display: none; \}/);          // 顶上不再堆一摞日期（用户反馈）
+  assert.match(narrow, /\.day-pick \.caret \{ display: inline; \}/);
+  assert.match(page, /function dayPicker\(sheet, days, currentDate\)/);
+  assert.match(page, /class="day-pick" aria-haspopup="listbox"/);
+});

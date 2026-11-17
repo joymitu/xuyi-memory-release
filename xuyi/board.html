@@ -128,6 +128,19 @@ main.diary { display: block; position: relative; padding: 12px 0 70px; min-heigh
 .page-nav button:disabled { opacity: .35; cursor: default; }
 .page-nav .no { font-size: 12px; color: var(--ink-3); letter-spacing: .08em; }
 .sheet h2 { font-family: var(--hand); font-weight: 400; font-size: 25px; margin: 0 0 4px; letter-spacing: .06em; }
+.day-pick { font: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0;
+  cursor: default; display: inline-flex; align-items: baseline; gap: 8px; }
+.day-pick .caret { display: none; font-family: var(--sans); font-size: 13px; color: var(--ink-3); }
+.day-menu { position: absolute; z-index: 6; top: 72px; left: 32px; width: min(300px, calc(100% - 56px));
+  max-height: 55vh; overflow: auto; background: #fffdf7; border: 1px solid var(--card-line); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 6px; }
+.day-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; border: 0;
+  background: transparent; color: var(--ink-2); font: 14px var(--sans); padding: 8px 10px; border-radius: 8px;
+  cursor: pointer; text-align: left; }
+.day-menu button:hover { background: rgba(127,120,105,.08); }
+.day-menu button.on { background: rgba(35,38,45,.07); color: var(--ink); }
+.day-menu button b { font-weight: 500; color: var(--ink); }
+.day-menu .cnt { font-size: 12px; color: var(--ink-3); }
 .sheet .meta { color: var(--ink-3); font-size: 13px; margin-bottom: 20px; }
 .sheet .empty { color: var(--ink-3); font: 16px var(--hand); }
 .entry p { margin: 0 0 1.05em; font-family: var(--hand); font-size: 17.5px; line-height: 1.9;
@@ -156,11 +169,11 @@ details.raw[open] summary::before { content: "▾ "; }
 @media (max-width: 1180px) {
   :root { --note-w: clamp(118px, 15vw, 170px); }
   main.diary { padding: 8px 18px 60px; }
-  /* 日期目录改成横排时换行，不要一条横向滚动条（真机看着像进度条，很丑）。 */
-  .spine { position: static; width: auto; max-height: none; flex-direction: row; flex-wrap: wrap;
-    overflow: visible; padding-bottom: 8px; }
-  .spine::-webkit-scrollbar { display: none; }
-  .spine button { flex: 0 0 auto; }
+  /* 日期目录不再堆在页面顶上（用户反馈：顶上一大摞日期很奇怪、把日记挤到下面）：
+     收进纸页标题——点「11 月 12 日 ▾」弹出日期列表。 */
+  .spine { display: none; }
+  .day-pick { cursor: pointer; }
+  .day-pick .caret { display: inline; }
   .desk { width: min(680px, calc(100vw - 2 * (var(--note-w) + 14px) - 36px)); }
   .sheet { padding: 30px 28px 38px 32px; }
   .page-notes .side { width: var(--note-w); gap: 18px; }
@@ -476,6 +489,42 @@ const hourText = hour => {
   return (h >= 18 ? '晚上' : h >= 12 ? '下午' : '') + words[h > 12 ? h - 12 : h] + '点';
 };
 
+// 窄窗口（嵌在 DSH 侧栏旁）没有左边的日期目录：点纸页标题弹出日期列表，选一天就翻过去。
+function dayPicker(sheet, days, currentDate) {
+  const pick = sheet.querySelector('.day-pick');
+  if (!pick || days.length < 2) return;
+  const close = () => {
+    sheet.querySelector('.day-menu')?.remove();
+    pick.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', outside, true);
+    document.removeEventListener('keydown', escape);
+  };
+  const outside = event => { if (!event.target.closest('.day-menu, .day-pick')) close(); };
+  const escape = event => { if (event.key === 'Escape') { close(); pick.focus(); } };
+  pick.onclick = () => {
+    if (getComputedStyle(document.getElementById('spine')).display !== 'none') return;   // 宽窗口用左边的目录
+    if (sheet.querySelector('.day-menu')) { close(); return; }
+    const menu = document.createElement('div');
+    menu.className = 'day-menu';
+    menu.setAttribute('role', 'listbox');
+    for (const day of days) {
+      const button = document.createElement('button');
+      button.setAttribute('role', 'option');
+      button.classList.toggle('on', day.date === currentDate);
+      button.setAttribute('aria-selected', String(day.date === currentDate));
+      button.innerHTML = `<b>${esc(day.date.slice(5))}</b>`
+        + `<span class="cnt">${esc(day.weekday)}${day.label ? ' · ' + esc(day.label) : ''}</span>`;
+      button.onclick = () => { close(); if (day.date !== currentDate) showDay(day.date); };
+      menu.appendChild(button);
+    }
+    sheet.appendChild(menu);
+    pick.setAttribute('aria-expanded', 'true');
+    (menu.querySelector('.on') ?? menu.firstChild).focus();
+    document.addEventListener('click', outside, true);
+    document.addEventListener('keydown', escape);
+  };
+}
+
 function renderDay(day, text, pending, isToday = false, hour = 22) {
   const [, month, date] = day.date.split('-').map(Number);
   const raw = day.entries.map(entry => `<li><time>${esc(entry.time)}</time><p>${esc(entry.text)}</p></li>`).join('');
@@ -493,11 +542,13 @@ function renderDay(day, text, pending, isToday = false, hour = 22) {
       <button data-go="newer" ${index > 0 ? '' : 'disabled'}>后一天 ›</button>
     </div>`;
   const sheet = document.getElementById('sheet');
-  sheet.innerHTML = `<h2>${month} 月 ${date} 日</h2>`
+  sheet.innerHTML = `<h2><button class="day-pick" aria-haspopup="listbox" aria-expanded="false">`
+      + `${month} 月 ${date} 日<span class="caret">▾ 换一天</span></button></h2>`
     + `<div class="meta">${esc(day.weekday)} · 聊了 ${day.count} 句</div>`
     + `<div class="entry">${entry}</div>`
     + (raw ? `<details class="raw"><summary>那天的原话（${day.entries.length} 句）</summary><ol class="lines">${raw}</ol></details>` : '')
     + nav;
+  dayPicker(sheet, days, day.date);
   sheet.querySelectorAll('.page-nav button').forEach(button => {
     if (button.disabled) return;
     button.onclick = () => {
