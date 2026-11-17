@@ -19,8 +19,13 @@ export const inject = ['tools', 'systemPrompt'];
 const packageDir = dirname(fileURLToPath(import.meta.url));
 
 // 开发时用项目里的行为文件，其它情况用包里的（用户机器上不会变）。
+// 装好的包自带核心时，包里的行为文件优先：早年登记过开发目录（~/.xuyi/project.json）的电脑，
+// 以前会去加载那里的旧 logic.js，新外壳配旧行为，新功能都不生效（1.0.2 装上后发现）。
+// 只有明确指定的开发目录（插件配置 projectDir 或环境变量 XUYI_PROJECT_DIR）才热更开发目录里的。
 export function logicFileOf(config = {}, { home = homedir(), exists = existsSync,
-  fallback = packageDir, platform = process.platform } = {}) {
+  fallback = packageDir, platform = process.platform, env = process.env } = {}) {
+  const explicit = [config.projectDir, env.XUYI_PROJECT_DIR].some(dir => typeof dir === 'string' && dir.trim());
+  if (!explicit && exists(join(fallback, 'py', 'xuyi', '__init__.py'))) return join(fallback, 'logic.js');
   const dir = findProjectDir(config, { home, platform });
   const candidate = join(dir, 'dsh-adapter', 'logic.js');
   return exists(candidate) ? candidate : join(fallback, 'logic.js');

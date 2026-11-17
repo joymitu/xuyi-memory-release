@@ -1632,6 +1632,19 @@ test('hot logic: the dev project file wins, the packaged copy is the fallback', 
   assert.equal(logicFileOf({ projectDir: project }, { home: folder }), join(project, 'dsh-adapter', 'logic.js'));
   const missing = join(folder, 'nope');
   assert.equal(logicFileOf({ projectDir: missing }, { home: folder, fallback: folder }), join(folder, 'logic.js'));
+  // 装好的包（自带核心）：只是登记过开发目录时，用包里的行为文件，不去加载开发目录里的旧版。
+  const pkg = join(folder, 'pkg');
+  mkdirSync(join(pkg, 'py', 'xuyi'), { recursive: true });
+  writeFileSync(join(pkg, 'py', 'xuyi', '__init__.py'), '');
+  mkdirSync(join(folder, '.xuyi'), { recursive: true });
+  writeFileSync(join(folder, '.xuyi', 'project.json'), JSON.stringify({ projectDir: project }));
+  mkdirSync(dirname(venvPython(project)), { recursive: true });
+  writeFileSync(venvPython(project), '');
+  assert.equal(logicFileOf({}, { home: folder, fallback: pkg, env: {} }), join(pkg, 'logic.js'));
+  assert.equal(logicFileOf({ projectDir: project }, { home: folder, fallback: pkg, env: {} }),
+    join(project, 'dsh-adapter', 'logic.js'));
+  assert.equal(logicFileOf({}, { home: folder, fallback: pkg, env: { XUYI_PROJECT_DIR: project } }),
+    join(project, 'dsh-adapter', 'logic.js'));
 });
 
 
