@@ -96,9 +96,11 @@ class PrivacyTests(GroupBase):
         self.say(GROUP, WANG, "我最近焦虑得睡不着，在吃药").chat()
         self.assertNotIn("焦虑", self.ask(LI, "小王最近怎么样了"))
 
-    def test_asking_about_yourself_is_fine(self):
+    def test_asking_about_yourself_is_fine_but_kept_light(self):
         self.say(GROUP, WANG, "我对芒果过敏，一吃嘴就肿").chat()
-        self.assertIn("芒果", self.ask(WANG, "我对啥过敏来着？"))
+        context = self.ask(WANG, "我对啥过敏来着？")
+        self.assertIn("芒果", context)
+        self.assertIn("只轻轻带过", context)   # 用户定：本人问自己的私事，群里说得含糊点
         self.assertNotIn("芒果", self.ask(LI, "小王对啥过敏？"))
 
     def test_a_private_chat_lookup_never_sees_the_group(self):
@@ -122,7 +124,13 @@ class HerOwnLookupInGroupTests(GroupBase):
     def test_someone_elses_private_matters_stay_out(self):
         self.say(GROUP, WANG, "我最近焦虑得睡不着，在吃药").chat()
         self.assertNotIn("焦虑", self.look(LI, "小王最近睡得怎么样"))
-        self.assertIn("焦虑", self.look(WANG, "我最近睡得怎么样"))
+        own = self.look(WANG, "我最近睡得怎么样")
+        self.assertIn("焦虑", own)
+        self.assertIn("只轻轻带过", own)
+
+    def test_ordinary_lines_carry_no_privacy_note(self):
+        self.say(GROUP, WANG, "我养了只柯基叫豆豆").chat()
+        self.assertNotIn("只轻轻带过", self.ask(WANG, "我养的狗叫啥？"))
 
 
 class HerTasteEverywhereTests(GroupBase):

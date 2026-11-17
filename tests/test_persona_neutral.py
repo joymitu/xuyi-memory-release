@@ -39,6 +39,7 @@ class NeutralPresetTests(unittest.TestCase):
 
     def test_group_rules_do_not_guess_members_gender(self):
         self.assertIn("看不出是男是女", GROUP_STYLE)
+        self.assertIn("只轻轻带过", GROUP_STYLE)
 
     def test_every_preset_keeps_its_older_versions_recognisable(self):
         for item in list_personas():

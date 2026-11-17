@@ -177,6 +177,9 @@ GROUP_HEADER = HEADER + "以下是这个群里的聊天记录，只在本群用�
 # 群里不当众说的私事（本人问自己的除外）：心情、身体、感情、钱、家里的事。
 GROUP_PRIVATE = re.compile(r"难过|伤心|哭|焦虑|抑郁|失眠|崩溃|压力|孤单|委屈|医院|看医生|吃药|生病|病了|住院|手术|体检|怀孕|"
                            r"过敏|不耐受|忌口|分手|离婚|吵架|失恋|前任|工资|月薪|存款|存了|欠钱|借钱|房贷|去世|走了")
+# 本人在群里问自己的私事：原话照给，但提醒她当着大家只轻轻带过（用户定，2026-11-17）。
+GROUP_OWN_PRIVATE_NOTE = ("｜这是TA自己的私事，现在是在群里：只轻轻带过（比如「你前阵子说睡得不太好」），"
+                          "别说出病名、吃药、钱数、感情这些细节；想细聊就让TA私聊你")
 HER_ANSWER_LIMIT = 2
 HER_ROOM_LIMIT = 30         # 找她自己的喜好时，最多再看这么多个别的聊天
 # 问她喜好时的壳：「你最喜欢什么X」里能用来对上以前那句问话的只有 X。
@@ -715,6 +718,8 @@ class Retriever:
                     continue   # 别人的私事不当众说；本人问自己的事可以
                 who = names.get(piece['sender_id'], '群友')
                 line = render_line(piece).replace(f"| {str(piece['sender_id'])[:16]}]", f"| {who}]", 1)
+                if GROUP_PRIVATE.search(piece['text']):
+                    line += GROUP_OWN_PRIVATE_NOTE   # 走到这里只可能是本人问自己的
                 if not add(line, piece):
                     break
         if not lines:
@@ -1282,6 +1287,8 @@ class Retriever:
             if piece['event_id'] in semantic_only:
                 line+='｜仅语义近似，非字面命中'
             line += stale_flag(piece)
+            if scope.startswith("qq:group:") and piece.get('role') == 'user' and GROUP_PRIVATE.search(piece['text']):
+                line += GROUP_OWN_PRIVATE_NOTE   # 群里留下的私事只会是正在说话的人自己的
             if replaced:
                 successors = []
                 for begin, newest in replaced.get(piece['event_id'], ()):
