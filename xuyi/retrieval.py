@@ -435,6 +435,7 @@ SAME_THING = (
     ("乐器", "吉他", "钢琴", "尤克里里", "小提琴", "架子鼓"),
     ("中学", "高中", "初中"),
     ("爱好", "兴趣", "迷上", "爱上", "喜欢上", "入坑", "沉迷"),
+    ("睡眠", "睡觉", "失眠", "睡不着", "睡不好", "熬夜", "早睡", "晚睡"),
     ("备考", "考试", "考研", "考公", "公务员", "雅思", "托福", "刷题"),
     ("唱歌", "歌手", "听歌", "的歌"),
 )
@@ -1239,6 +1240,15 @@ class Retriever:
 
         kept = 0
         followed = 0
+        # 新说法跟着旧说法进来，前提是旧说法自己就和问题对得上：每天一句「今天第13次刷到猫猫视频」
+        # 只是数字不同，不能靠「数字变了」一句串一句地混进来。
+        vouched = set()
+        if informative is not None:
+            for old_id, new_piece in newer.items():
+                old_piece = next((p for p in candidates if p['event_id'] == old_id), None)
+                if old_piece is None or informative & set(terms(old_piece['text'])) \
+                        or own_single_match(old_piece, singles):
+                    vouched.add(new_piece['event_id'])
         for piece in candidates:
             if is_echo(piece, query):continue
             # 自动提醒只递用户自己的原话：她当时的回应（「我一直在」）会把旁边的伤心事一起带出来。
@@ -1253,7 +1263,7 @@ class Retriever:
             # ones ("宠物" vs "猫") keep the ranker's first few guesses.
             if informative is not None and not informative & set(terms(piece['text'])) \
                     and not own_single_match(piece, singles) \
-                    and piece['event_id'] not in {p['event_id'] for p in newer.values()} \
+                    and piece['event_id'] not in vouched \
                     and not any(e in piece['text'] for e in long_extra) \
                     and (strict or (piece.get('role') == 'assistant' and not her_words and not asking_her)
                          or kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD))):continue

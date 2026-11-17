@@ -65,6 +65,20 @@ class WhoSaidItTests(GroupBase):
         lines = [line for line in self.ask(WANG, "我的柯基都叫啥？").split("\n") if line.startswith("[dsh:")]
         self.assertEqual(len(lines), GROUP_LINES)
 
+    def test_repeated_chit_chat_with_numbers_does_not_chain_in(self):
+        # 真 DeepSeek 群聊模拟发现：「今天第13次刷到猫猫视频」只是数字不同，被「数字变了」串了进来。
+        self.say(GROUP, LI, "我养了只布偶叫雪球")
+        for i in range(10):
+            self.say(GROUP, LI, f"今天第{i}次刷到猫猫视频哈哈哈")
+        self.chat()
+        context = self.ask(LI, "我养的猫叫啥来着？")
+        self.assertIn("雪球", context)
+        self.assertNotIn("猫猫视频", context)
+
+    def test_own_sleep_question_finds_own_line(self):
+        self.say(GROUP, WANG, "我最近焦虑得睡不着，在吃药").chat()
+        self.assertIn("睡不着", self.ask(WANG, "我最近睡眠咋样来着"))
+
     def test_plain_chat_brings_nothing(self):
         self.say(GROUP, WANG, "我养了只柯基叫豆豆").chat()
         self.assertEqual(self.ask(LI, "我血型是什么？"), "")
