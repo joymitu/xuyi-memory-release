@@ -23,7 +23,7 @@ class NeutralPresetTests(unittest.TestCase):
     def test_chat_rules_do_not_either(self):
         for word in GENDERED:   # 「其他人设」里的「他」不是指人
             self.assertNotIn(word, CHAT_STYLE.replace("其他", ""))
-            self.assertNotIn(word, GROUP_STYLE.replace("其他", ""))
+            self.assertNotIn(word, GROUP_STYLE.replace("其他", "").replace("「他」", ""))
 
     def test_replacing_he_did_not_break_other_words(self):
         # 2026-11-16：「其他人设」曾被误换成「其TA人设」。
@@ -36,6 +36,9 @@ class NeutralPresetTests(unittest.TestCase):
         self.assertIn("别说「这都能忘」", CHAT_STYLE)
         self.assertIn("直接说出一个具体的", CHAT_STYLE)
         self.assertIn("别说「这都能忘」", GROUP_STYLE)   # 群里也一样不怪人
+
+    def test_group_rules_do_not_guess_members_gender(self):
+        self.assertIn("看不出是男是女", GROUP_STYLE)
 
     def test_every_preset_keeps_its_older_versions_recognisable(self):
         for item in list_personas():
