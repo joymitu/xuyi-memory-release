@@ -1750,3 +1750,13 @@ test('diary: in a narrow window the date list folds into the page title instead 
   assert.match(page, /function dayPicker\(sheet, days, currentDate\)/);
   assert.match(page, /class="day-pick" aria-haspopup="listbox"/);
 });
+
+test('diary: turning pages goes one way for the next day and the other way for the previous day', () => {
+  const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
+  assert.match(page, /async function turnPage\(sheet, forward, render\)/);
+  assert.match(page, /turnPage\(sheet, to < from, render\)/);            // 序号变小＝更新的一天＝往后翻
+  assert.match(page, /@keyframes leafAway \{ from \{ transform: rotateY\(0\)/);
+  assert.match(page, /@keyframes leafBack \{ from \{ transform: rotateY\(-108deg\)/);
+  assert.match(page, /prefers-reduced-motion: reduce\)'\)\.matches/);    // 关了动画就直接换页
+  assert.doesNotMatch(page, /turn-out|turnIn/);                           // 旧的「歪一下再弹回」不再用
+});

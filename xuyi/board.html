@@ -115,11 +115,22 @@ main.diary { display: block; position: relative; padding: 12px 0 70px; min-heigh
   box-shadow: var(--shadow); padding: 36px 42px 46px 46px; min-height: 62vh; }
 .sheet::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
   background: linear-gradient(#e6d6a4, #d3bf87); opacity: .55; border-radius: 4px 0 0 4px; }
-.desk { perspective: 1600px; }
-.sheet { transform-origin: left center; transition: transform .18s ease-in, opacity .18s ease-in; }
-.sheet.turn-out { transform: rotateY(-9deg) translateX(-6px); opacity: .3; }
-.sheet.turn-in { animation: turnIn .32s cubic-bezier(.2,.7,.3,1) both; }
-@keyframes turnIn { from { transform: rotateY(10deg); opacity: .15; } to { transform: none; opacity: 1; } }
+/* 翻页：装订线在左边。往后翻（后一天）——当前页绕装订线掀起翻走，露出下面的新页；
+   往前翻（前一天）——上一页从左边翻回来盖住当前页。翻起来时纸背光变暗一点。 */
+.desk { perspective: 1800px; }
+.leaf { z-index: 4; overflow: hidden; transform-origin: left center; backface-visibility: hidden;
+  pointer-events: none; will-change: transform; }
+.leaf::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, rgba(40,32,20,.02), rgba(40,32,20,.16) 70%, rgba(40,32,20,.24)); }
+.leaf.turning-away { animation: leafAway .56s cubic-bezier(.45,.05,.35,1) forwards; }
+.leaf.turning-away::after { animation: leafShade .56s ease-in forwards; }
+.leaf.turning-back { animation: leafBack .56s cubic-bezier(.45,.05,.35,1) forwards; }
+.leaf.turning-back::after { animation: leafShade .56s ease-out reverse forwards; }
+@keyframes leafAway { from { transform: rotateY(0); box-shadow: var(--shadow); }
+  to { transform: rotateY(-108deg); box-shadow: 18px 10px 40px rgba(0,0,0,.18); } }
+@keyframes leafBack { from { transform: rotateY(-108deg); box-shadow: 18px 10px 40px rgba(0,0,0,.18); }
+  to { transform: rotateY(0); box-shadow: var(--shadow); } }
+@keyframes leafShade { from { opacity: 0; } to { opacity: 1; } }
 .page-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 26px;
   padding-top: 12px; border-top: 1px dashed var(--line); }
 .page-nav button { font: 13px var(--sans); color: var(--ink-2); background: transparent;
@@ -457,6 +468,41 @@ function setBook(book) {
 
 const wait = ms => new Promise(done => setTimeout(done, ms));
 let flipping = false;
+const TURN_MS = 560;
+
+// 翻一页。forward：往后翻到更新的一天（当前页掀走，露出下面的新页）；否则往前翻（上一页从左边翻回来）。
+async function turnPage(sheet, forward, render) {
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (still || !sheet.offsetWidth) { render(); return; }
+  const desk = sheet.parentElement;
+  const leafOf = html => {
+    const leaf = document.createElement('div');
+    leaf.className = 'sheet leaf';
+    leaf.setAttribute('aria-hidden', 'true');
+    leaf.style.cssText = `position:absolute;left:${sheet.offsetLeft}px;top:${sheet.offsetTop}px;`
+      + `width:${sheet.offsetWidth}px;height:${sheet.offsetHeight}px;margin:0;`;
+    leaf.innerHTML = html;
+    desk.appendChild(leaf);
+    return leaf;
+  };
+  if (forward) {
+    const leaf = leafOf(sheet.innerHTML);   // 旧页盖在上面
+    render();                               // 新页在下面
+    leaf.classList.add('turning-away');
+    await wait(TURN_MS);
+    leaf.remove();
+  } else {
+    const old = sheet.innerHTML;
+    render();
+    const fresh = sheet.innerHTML;
+    sheet.innerHTML = old;                  // 翻的时候下面还是旧页
+    const leaf = leafOf(fresh);
+    leaf.classList.add('turning-back');
+    await wait(TURN_MS);
+    leaf.remove();
+    render();                               // 换成真正的新页（带上按钮事件）
+  }
+}
 
 async function showDay(dateStr, animate = true) {
   const day = diaryData?.days.find(entry => entry.date === dateStr);
@@ -467,18 +513,15 @@ async function showDay(dateStr, animate = true) {
   const one = await api('api/diary?scope=' + encodeURIComponent(current) + '&date=' + dateStr);
   if (currentDay !== dateStr || one.error) return;
   const sheet = document.getElementById('sheet');
-  const flip = animate && previous && previous !== dateStr && !flipping;
-  if (flip) {
+  const render = () => renderDay(day, one.diary_text, one.diary_pending, one.diary_today, one.diary_hour);
+  const days = diaryData?.days ?? [];
+  const from = days.findIndex(entry => entry.date === previous), to = days.findIndex(entry => entry.date === dateStr);
+  if (animate && previous && previous !== dateStr && !flipping && from >= 0 && to >= 0) {
     flipping = true;
-    sheet.classList.add('turn-out');
-    await wait(180);
-  }
-  renderDay(day, one.diary_text, one.diary_pending, one.diary_today, one.diary_hour);
-  if (flip) {
-    sheet.classList.remove('turn-out');
-    void sheet.offsetWidth;
-    sheet.classList.add('turn-in');
-    setTimeout(() => { sheet.classList.remove('turn-in'); flipping = false; }, 360);
+    try { await turnPage(sheet, to < from, render); }   // 列表最新的在前：序号变小＝往后翻到更新的一天
+    finally { flipping = false; }
+  } else {
+    render();
   }
   if (!one.diary_text && one.diary_pending) pollDay(dateStr, Date.now());
 }
