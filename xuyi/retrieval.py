@@ -1272,8 +1272,10 @@ class Retriever:
                     and piece['event_id'] not in vouched \
                     and not any(e in piece['text'] for e in long_extra) \
                     and (strict or (piece.get('role') == 'assistant' and not her_words and not asking_her)
-                         or kept >= (FOCUS_DAY if day is not None else (1 if anchored else FOCUS_HEAD))):continue
+                         or kept >= (FOCUS_DAY if day is not None else ((1 if her_words else 0) if anchored else FOCUS_HEAD))):continue
             # ↑ 没有共同词时只猜用户自己的原话：她的回应（「我一直在」）一被猜中，就会把前一句伤心事带出来。
+            # ↑ 问题有能对上的词时，排第一的那句也要对得上（不再免检）：日子一久排序变了，「在北京读研」的同桌
+            #   会排到「大学室友」前面混进来（2026-11-18 发现）。问她说过的话例外：她的回答常不带问句里的词。
             kept += 1
             if dedup:
                 grams=bigrams(piece['text'])
