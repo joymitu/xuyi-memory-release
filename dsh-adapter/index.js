@@ -18,6 +18,29 @@ export const inject = ['tools', 'systemPrompt'];
 
 const packageDir = dirname(fileURLToPath(import.meta.url));
 
+// /xuyi 下所有接口（日记、记忆、备份、导入、设置）先过 DSH 自己的访问检查：
+// 要带 DSH 登录后发的 cookie，并且 Host/Origin 是本机同源。别的网页即使知道端口，也读不到、写不了。
+// 这里是外壳，装好后不会被旧的 logic.js 绕过；查不到检查服务、或检查本身出错，一律拒绝，不放行。
+export function guardRoute(getConnection, inner) {
+  const refuse = (res, status, text) => {
+    if (typeof res.writeHead !== 'function') return;
+    res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(text);
+  };
+  return (req, res) => {
+    let rejection;
+    try {
+      const connection = getConnection();
+      rejection = typeof connection?.requestRejection === 'function' ? connection.requestRejection(req) : 503;
+    } catch { rejection = 503; }
+    if (rejection) {
+      return refuse(res, rejection, rejection === 401 ? '需要先登录 DSH 再打开续忆'
+        : rejection === 403 ? '续忆只接受 DSH 页面自己的请求' : '续忆暂时打不开');
+    }
+    return inner(req, res);
+  };
+}
+
 // 开发时用项目里的行为文件，其它情况用包里的（用户机器上不会变）。
 // 装好的包自带核心时，包里的行为文件优先：早年登记过开发目录（~/.xuyi/project.json）的电脑，
 // 以前会去加载那里的旧 logic.js，新外壳配旧行为，新功能都不生效（1.0.2 装上后发现）。
@@ -149,7 +172,7 @@ export function apply(ctx, config = {}) {
     // 宿主有网页服务时挂 /xuyi/，左侧栏的日记本（client.js）打开它。
     ctx.inject(['webServer'], web => {
       try {
-        const off = web.webServer.register({ kind: 'prefix', path: '/xuyi', handler: (req, res) => {
+        const off = web.webServer.register({ kind: 'prefix', path: '/xuyi', handler: guardRoute(() => ctx.get?.('connection'), (req, res) => {
           loader.check();
           const route = loader.current?.handleRoute;
           if (typeof route !== 'function') {
@@ -160,7 +183,7 @@ export function apply(ctx, config = {}) {
             return;
           }
           return route(req, res);
-        } });
+        }) });
         if (typeof off === 'function') web.on?.('dispose', off);
       } catch (error) { warn(`日记本路由注册失败：${error?.message ?? error}`); }
     });

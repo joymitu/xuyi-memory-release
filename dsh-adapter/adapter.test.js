@@ -990,6 +990,51 @@ test('diary route: forwards only the board pages to the board with its token', a
   assert.match(res.body.toString('utf8'), /日记本暂时打不开/);
 });
 
+test('diary route: every /xuyi request goes through the DSH access check first', async () => {
+  const { guardRoute } = await import('./index.js');
+  const calls = [];
+  const inner = (req, res) => { calls.push(req.url); res.writeHead(200); res.end('ok'); };
+  const run = async (getConnection, url = '/xuyi/api/board') => {
+    const res = fakeRes();
+    await guardRoute(getConnection, inner)({ url, method: 'GET', headers: { host: '127.0.0.1:3000' } }, res);
+    return res;
+  };
+  // 通过检查才进路由；检查拿到的就是原请求（带 cookie 的头）。
+  let seen;
+  const ok = { requestRejection: req => { seen = req; return undefined; } };
+  assert.equal((await run(() => ok)).status, 200);
+  assert.equal(seen.url, '/xuyi/api/board');
+  // 没登录、跨站：拒绝，路由一次都没碰。
+  assert.equal((await run(() => ({ requestRejection: () => 401 }))).status, 401);
+  assert.equal((await run(() => ({ requestRejection: () => 403 }), '/xuyi/api/backup')).status, 403);
+  assert.equal(calls.length, 1);
+  // 检查服务不在、检查出错：宁可打不开，也不放行。
+  assert.equal((await run(() => undefined)).status, 503);
+  assert.equal((await run(() => ({}))).status, 503);
+  assert.equal((await run(() => ({ requestRejection: () => { throw new Error('boom'); } }))).status, 503);
+  assert.equal((await run(() => { throw new Error('gone'); })).status, 503);
+  assert.equal(calls.length, 1);
+});
+
+test('diary route: the plugin mounts /xuyi behind the DSH access check', async () => {
+  const registered = [];
+  const handlers = {};
+  const ctx = { on: (event, fn) => { handlers[event] = fn; }, get: () => undefined,
+    inject: (deps, fn) => { if (deps.includes('webServer')) fn({ webServer: { register: route => { registered.push(route); return () => {}; } } }); },
+    systemPrompt: { context() {} }, logger: () => ({ warn() {} }), tools: { register() {} } };
+  const folder = mkdtempSync(join(tmpdir(), 'xuyi-guard-'));
+  try {
+    apply(ctx, { homeDir: folder, dbPath: join(folder, 'x.sqlite'), prepare: false, autoRecall: false, bubbleDelay: false,
+      diaryClock: false, boardNotes: false });
+  } catch { /* 这里只看路由有没有被挂上 */ }
+  const route = registered.find(item => item.path === '/xuyi');
+  assert.ok(route, "没挂上 /xuyi");
+  const res = fakeRes();
+  await route.handler({ url: '/xuyi/api/board', method: 'GET', headers: { host: '127.0.0.1:3000' } }, res);
+  assert.equal(res.status, 503, '没有 DSH 的检查服务时，续忆的接口不能放行');
+  rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+});
+
 test('diary route: the real Python board serves the page and data through DSH', async t => {
   const repo = dirname(dirname(fileURLToPath(import.meta.url)));
   if (!existsSync(venvPython(repo))) return t.skip('no project venv');
