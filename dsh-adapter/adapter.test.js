@@ -1171,6 +1171,70 @@ test('the guide renders a new QQ QR code even when prior chats and a persona are
   assert.equal(load({ phase: 'bound' }).next, 'done');
 });
 
+test('the guide tells the user what to do when installing the QQ plugin takes too long', async () => {
+  const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
+  const script = page.slice(page.indexOf('const WIZ_STEPS'), page.indexOf('function openWizard'));
+  const run = async ({ fireTimer }) => {
+    const install = {};
+    const box = { querySelector: selector => selector === '[data-install]' ? install : null, querySelectorAll: () => [] };
+    const document = { getElementById: id => id === 'wizStep' ? box : {} };
+    const said = [], timers = [], cleared = [];
+    let finish;
+    const setupPost = () => new Promise(done => { finish = done; });
+    const fakeSetTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+    const render = new Function('setupState', 'bindState', 'document', 'sessionStorage', 'renderPrepare',
+      'setupPost', 'say', 'refreshSetup', 'setTimeout', 'clearTimeout',
+      script + 'return { render: () => renderWizard(true), slowText: INSTALL_SLOW_TEXT };');
+    const wiz = render({ qq: { installed: false, canInstall: true } }, null, document, { getItem: () => null }, () => {},
+      setupPost, (id, text, bad = false) => said.push({ id, text, bad }), async () => {},
+      fakeSetTimeout, id => cleared.push(id));
+    wiz.render();
+    const clicked = install.onclick();
+    assert.equal(install.disabled, true);
+    assert.equal(said.at(-1).text, '正在安装，大概要一分钟……');
+    const slow = timers.find(timer => timer.ms === 90000);
+    assert.ok(slow, '装 QQ 插件要有「装太久」的计时');
+    if (fireTimer) slow.fn();
+    finish({ ok: true, data: { installed: true } });
+    await clicked;
+    assert.ok(cleared.length > 0, '装完要把计时取消，不然装好了还会弹「卡住了」');
+    return { said, slowText: wiz.slowText };
+  };
+  const quick = await run({ fireTimer: false });
+  assert.ok(!quick.said.some(item => item.text === quick.slowText), '装得快就不该提示卡住');
+  const stuck = await run({ fireTimer: true });
+  const hint = stuck.said.find(item => item.text === stuck.slowText);
+  assert.ok(hint && hint.bad && hint.id === 'sayQq');
+  assert.match(hint.text, /完全退出.*托盘.*再打开/);
+  assert.match(hint.text, /添加插件.*@tencent-connect\/dsh-qqbot/);
+});
+
+test('the guide says the scan worked and, if the QQ plugin never connects, how to fix it', () => {
+  const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
+  const script = page.slice(page.indexOf('const WIZ_STEPS'), page.indexOf('function openWizard'));
+  const box = { querySelector: () => ({}), querySelectorAll: () => [] };
+  const document = { getElementById: id => id === 'wizStep' ? box : {} };
+  let now = 1000;
+  const clock = { now: () => now };
+  const render = new Function('setupState', 'bindState', 'document', 'sessionStorage', 'renderPrepare', 'Date',
+    script + 'return () => renderWizard();');
+  const draw = render({ qq: { installed: true }, persona: { configured: false } }, { phase: 'saving' }, document,
+    { getItem: () => null }, () => {}, clock);
+  draw();
+  assert.match(box.innerHTML, /扫码成功，正在连上机器人/);
+  assert.doesNotMatch(box.innerHTML, /二维码马上就好|完全退出/);
+  now += 30000;
+  draw();
+  assert.doesNotMatch(box.innerHTML, /完全退出/, '半分钟内还算正常，不催');
+  now += 20000;
+  draw();
+  assert.match(box.innerHTML, /扫码成功了，但 QQ 插件一直没连上机器人/);
+  assert.match(box.innerHTML, /完全退出.*托盘.*再打开.*重新扫一次/);
+  const fresh = render({ qq: { installed: true } }, { phase: 'starting' }, document, { getItem: () => null }, () => {}, clock);
+  fresh();
+  assert.match(box.innerHTML, /二维码马上就好/);
+});
+
 test('the guide celebrates only after recall works and opens the memory tab from the finish screen', () => {
   const page = readFileSync(new URL('../xuyi/board.html', import.meta.url), 'utf8');
   const script = page.slice(page.indexOf('const WIZ_STEPS'), page.indexOf('function openWizard'));

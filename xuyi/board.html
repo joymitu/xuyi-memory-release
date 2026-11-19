@@ -983,6 +983,16 @@ function dismissWizard() {
 }
 
 let helloSince = null;
+let savingSince = null;
+// 装 QQ 插件、扫码后连机器人，正常都很快；超过这么久还没好，多半是卡住了，告诉用户怎么办，别让人干等。
+// （有的电脑上 DSH 的下载缓存出问题，装插件会一直不动，DSH 要等 10 分钟才放弃。）
+const INSTALL_SLOW_MS = 90000;
+const SAVING_STUCK_MS = 45000;
+const INSTALL_SLOW_TEXT = '装得有点久。一般一分钟内就好，超过两三分钟多半是卡住了：'
+  + '把 DSH 完全退出（右下角托盘图标也退掉）再打开，回到这里再点一次；'
+  + '或者打开左侧「插件」，点「添加插件」，填 @tencent-connect/dsh-qqbot 手动装。';
+const SAVING_STUCK_TEXT = '扫码成功了，但 QQ 插件一直没连上机器人。把 DSH 完全退出（右下角托盘图标也退掉）再打开，一般就好了；'
+  + '还不行就打开 QQ 机器人页面重新扫一次。';
 
 function renderWizard(force = false) {
   const step = wizardStep();
@@ -990,7 +1000,12 @@ function renderWizard(force = false) {
   // 等第一句话等太久（QQ 那边聊上了、续忆却没收到）要换成「卡住了」那一屏。
   if (step !== 'hello') helloSince = null; else helloSince ??= Date.now();
   const stuck = step === 'hello' && setupState.chatted && Date.now() - helloSince > 20000;
+  // 扫完码 QQ 插件要保存凭据、自己重载才算连上；一直停在「保存中」就是没重载成，提示怎么办。
+  const saving = step === 'scan' && bindState?.phase === 'saving';
+  if (!saving) savingSince = null; else savingSince ??= Date.now();
+  const savingStuck = saving && Date.now() - savingSince > SAVING_STUCK_MS;
   const signature = step + '|' + (step === 'scan' ? `${bindState?.phase}|${bindState?.issuedAt}` : '') + (stuck ? '|stuck' : '')
+    + (savingStuck ? '|saving-stuck' : '')
     + (wizManual !== null ? `|m${wizManual}|${stepDone(step)}` : '');
   if (!force && signature === wizShown) return;
   wizShown = signature;
@@ -1031,7 +1046,9 @@ function renderWizard(force = false) {
     if (install) install.onclick = async () => {
       install.disabled = true;
       say('sayQq', '正在安装，大概要一分钟……');
-      const { ok, data } = await setupPost('setup/install-qq');
+      const slow = setTimeout(() => say('sayQq', INSTALL_SLOW_TEXT, true), INSTALL_SLOW_MS);
+      let ok, data;
+      try { ({ ok, data } = await setupPost('setup/install-qq')); } finally { clearTimeout(slow); }
       if (!ok) { install.disabled = false; say('sayQq', data.error || '没装上', true); return; }
       if (data.restart) {
         say('sayQq', '装好了。把 DSH 完全退出（右下角托盘图标也退掉）再打开，会回到这一步。');
@@ -1047,7 +1064,9 @@ function renderWizard(force = false) {
     const qr = qrSrc
       ? '<div class="wiz-qr"><img alt="QQ 机器人绑定二维码">'
         + '<div><p>用<b>手机 QQ</b> 扫一下，照提示建好机器人。</p><span class="wiz-wait">扫完会自己跳到下一步</span></div></div>'
-      : phase === 'starting' || phase === 'saving' ? '<p><span class="wiz-wait">二维码马上就好……</span></p>'
+      : savingStuck ? `<p class="say bad">${SAVING_STUCK_TEXT}</p>`
+      : phase === 'saving' ? '<p><span class="wiz-wait">扫码成功，正在连上机器人……</span></p>'
+      : phase === 'starting' ? '<p><span class="wiz-wait">二维码马上就好……</span></p>'
       : phase === 'failed' ? `<p class="say bad">二维码没出来（${esc(bindState.reason || '原因不明')}），去 QQ 机器人页面再试一次。</p>`
       : '<p>去 QQ 机器人页面用手机 QQ 扫码，扫好了回来点「扫好了」。</p>';
     box.innerHTML = '<div class="wiz-kicker">第 2 步 · 扫码</div><h3>用手机 QQ 扫码，建好你的机器人</h3>' + qr
