@@ -147,7 +147,7 @@ class HerTasteEverywhereTests(GroupBase):
         self.say(GROUP, WANG, "今天天气不错").chat()
         context = self.ask(LI, "你最喜欢什么零食？", her=True)
         self.assertIn("海苔", context)
-        self.assertIn("别处说过的自己的喜好", context)
+        self.assertIn("别处说过的自己的喜好或身世", context)
         self.assertNotIn("你最喜欢吃什么零食呀", context)   # 私聊那句问话不带进群
 
     def test_her_group_answer_keeps_her_consistent_in_private(self):

@@ -442,6 +442,10 @@ SAME_THING = (
     ("睡眠", "睡觉", "失眠", "睡不着", "睡不好", "熬夜", "早睡", "晚睡"),
     ("备考", "考试", "考研", "考公", "公务员", "雅思", "托福", "刷题"),
     ("唱歌", "歌手", "听歌", "的歌"),
+    ("老家", "家乡", "哪里人", "哪儿人", "哪的人"),
+    ("多大", "几岁", "年纪", "年龄", "岁数"),
+    ("上班", "职业", "干什么的", "做什么的", "做什么工作", "什么工作"),
+    ("学校", "大学", "专业", "读书", "上学", "念书"),
 )
 
 
@@ -653,13 +657,15 @@ class Retriever:
                 continue
             total = index.chunk_count(self.store, room) or 0
             df = lambda term, room=room: index.document_frequency(self.store, room, term)
-            wanted = informative_terms(query, df, total) - HER_QUESTION_SHELL
+            # 同一件事换了说法（「你老家哪的」→ 以前问过「你是哪里人」）也算同一个问题。
+            same = same_thing(query)
+            wanted = (informative_terms(query, df, total) | set(same)) - HER_QUESTION_SHELL
             if not wanted:
                 continue
             asking = self._latest_user_event(room) if room == scope else None
-            for piece in index.ranked_pieces(self.store, room, ASK_SHELL.sub(' ', query), 60):
+            for piece in index.ranked_pieces(self.store, room, ASK_SHELL.sub(' ', query) + ' ' + ' '.join(same), 60):
                 if piece.get('role') != 'user' or piece['event_id'] == asking or not asks_her(piece['text']) \
-                        or not wanted & set(terms(piece['text'])):
+                        or not (wanted & set(terms(piece['text'])) or any(word in piece['text'] for word in same)):
                     continue
                 reply = self._reply_after(room, piece['event_id'], min_len=1)
                 if reply and reply['text'] not in seen:
@@ -670,7 +676,7 @@ class Retriever:
 
     @staticmethod
     def _her_line(asked, reply):
-        where = f"你以前被问「{asked['text'].strip()}」时的回答" if asked else "你以前在别处说过的自己的喜好"
+        where = f"你以前被问「{asked['text'].strip()}」时的回答" if asked else "你以前在别处说过的自己的喜好或身世"
         return render_line(reply) + f"｜这是{where}；这次说法要和它一致"
 
     def _group_recall(self, scope, query, speaker, budget, her=False):

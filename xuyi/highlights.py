@@ -808,9 +808,20 @@ def _asks_someone_else(query, family=None):
     return bool(subjects) and subjects[-1] != "我"
 
 
+# 问她自己的身世（老家、年纪、工作、学校、家里人）：这些答案定下来就不该再变。
+# 「昨天干嘛了」这种随日子变的不算，今天的昨天和上周的昨天不是一回事。
+BACKSTORY = re.compile(
+    r"老家|家乡|哪(?:里|儿|的)?人|多大(?:了|啦|年纪)?|几岁|年纪|年龄|岁数|"
+    r"(?:在)?(?:哪里|哪儿|哪)(?:上班|工作|上学|读书|住|念书)|住(?:在)?(?:哪|哪里|哪儿)|"
+    r"做什么工作|什么工作|干什么的|做什么的|哪(?:个|所|家)?(?:学校|大学|公司)|学什么|什么专业|"
+    r"兄弟姐妹|有(?:哥哥|姐姐|弟弟|妹妹)吗|家里有")
+
+
 def asks_her(query):
-    """问的是她自己（「你最喜欢什么零食」「你能吃辣吗」），不是用户。"""
+    """问的是她自己（「你最喜欢什么零食」「你能吃辣吗」「你老家哪的」），不是用户。"""
     anchor = ANCHOR.search(query)
+    if not anchor:
+        anchor = BACKSTORY.search(query)
     if not anchor:
         return False
     subjects = SUBJECT.findall(query[:anchor.start()])
