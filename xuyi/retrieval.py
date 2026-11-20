@@ -355,9 +355,21 @@ def linking_chars(query):
             if ch not in NAME_GLUE and ch not in NOT_LINKING}
 
 
+# 同一件事，但两句话和问句之间没有一个共同的字：问「我现在多重」，旧的是「我体重120斤」，新的是「最近瘦到110了」。
+# 每组 (问句里的词, 原话里的词)：问句、旧句、新句各命中一个，就算说的是同一件事。
+# 原话里不放单独的「斤」：「买了两斤苹果」不是体重。
+TOPIC_LINKS = (
+    (("体重", "多重", "几斤", "多少斤", "公斤", "瘦", "胖", "减肥", "减重"),
+     ("体重", "公斤", "瘦到", "瘦了", "瘦成", "胖了", "胖到", "减到", "涨到", "称重", "重了", "轻了")),
+)
+
+
 def same_subject(old_text, new_text, query):
     """两句说的是问句里的同一件事，而且数字变了（存了2万→存到5万；十二点睡→十一点睡）。"""
     shared = linking_chars(query) & set(old_text) & set(new_text)
+    if not shared and query:
+        shared = any(any(w in query for w in asked) and any(w in old_text for w in said)
+                     and any(w in new_text for w in said) for asked, said in TOPIC_LINKS)
     return bool(shared) and bool(NUMBER.search(old_text)) and bool(NUMBER.search(new_text))
 
 
