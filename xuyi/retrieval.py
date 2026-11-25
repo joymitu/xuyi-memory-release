@@ -185,7 +185,9 @@ HER_ANSWER_LIMIT = 2
 HER_ROOM_LIMIT = 30         # 找她自己的喜好时，最多再看这么多个别的聊天
 # 问她喜好时的壳：「你最喜欢什么X」里能用来对上以前那句问话的只有 X。
 HER_QUESTION_SHELL = {"最喜", "喜欢", "欢什", "你最", "最爱", "爱吃", "爱喝", "你喜", "你爱"}
-ABOUT_ME_BUDGET = 600      # 问自己的事时自动带的原话，最多这么多（字节），免得把提示词撑大
+# 问她还记不记得某件事（「还记得上次那家火锅吗」）：不带「我」也算问旧事。和 dsh-adapter/logic.js 的 remindQuestion 一起改。
+REMIND_QUESTION = re.compile(r"(?:还|你)记得[^。！!？?]{1,20}?(?:吗|么|不|没)|记不记得[^。！!？?]{1,20}|(?:你|还)?忘了[^。！!？?]{1,12}?(?:吗|么|没)|[^。！!？?，,]{2,12}忘了(?:吗|么|没)|上次(?:说|提|聊|讲|去)的[^。！!？?]{1,12}")
+ABOUT_ME_BUDGET = 600     # 问自己的事时自动带的原话，最多这么多（字节），免得把提示词撑大
 RARE_DF = 8
 MUNDANE = {"天气", "时间", "时候", "东西", "问题", "地方", "感觉", "事情", "事情",
            "工作", "学习", "吃饭", "睡觉", "视频", "照片", "表情", "今天", "明天",
@@ -796,7 +798,7 @@ class Retriever:
         if not scope.startswith("qq:c2c:") or HISTORY_QUERY.search(query) or OTHER_OWNER.search(query) \
                 or _asks_someone_else(query):
             return None
-        if not re.search(r"我|俺|咱", query):
+        if not re.search(r"我|俺|咱", query) and not REMIND_QUESTION.search(query):
             # 「泡泡还好吗」：只有问到档案里的专名（很少几句提过）才找；「天气怎么样」不翻旧账。
             name = re.match(r"[\u3400-\u9fffA-Za-z]{1,6}?(?=还好|怎么样|最近|现在)", query.strip())
             df = index.document_frequency(self.store, scope, name.group(0)) if name else 0

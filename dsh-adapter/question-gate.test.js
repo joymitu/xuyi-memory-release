@@ -52,6 +52,15 @@ test('opinion questions, small talk and "what did I just say" do not trigger abo
   }
 });
 
+test('asking whether she remembers something passes the about-me gate even without 我', () => {
+  for (const text of ['还记得上次那家烤肉店吗', '你记得那部电影不', '记不记得那个烤肉店', '那本书你忘了没', '上次说的那家店叫啥']) {
+    assert.equal(isAboutMe(text), true, text);
+  }
+  for (const text of ['今天好累', '记得带伞哦', '你忘了吗', '早']) {
+    assert.equal(isAboutMe(text), false, text);
+  }
+});
+
 test('questions about her own background pass the about-her gate; mine and time-bound ones do not', () => {
   for (const text of ['你老家哪的', '你是哪里人', '你多大了', '你在哪上班', '你是做什么工作的', '你有兄弟姐妹吗']) {
     assert.equal(isAboutHer(text), true, text);

@@ -32,8 +32,12 @@ const notAboutMe = /怎么办|该|要不要|帮我|给我|推荐|建议|你觉�
 // 问某个有名字的人/宠物近况（「泡泡还好吗」「阿花最近怎么样」）。名字是不是档案里的专名，由核心再查一遍。
 const howIsIt = /^[^你我俺咱。！!？?，,\s]{1,6}(?:还好吗|还好不|怎么样了|最近怎么样|最近还好吗|现在怎么样)[？?]?\s*$/;
 
+// 问她还记不记得某件事（「还记得上次那家火锅吗」「那部电影你忘了没」）：不带「我」也是在问旧事。
+// 和 xuyi/retrieval.py 的 REMIND_QUESTION 一起改；核心那边只给和问题有实质共同词的原话。
+const remindQuestion = /(?:还|你)记得[^。！!？?]{1,20}?(?:吗|么|不|没)|记不记得[^。！!？?]{1,20}|(?:你|还)?忘了[^。！!？?]{1,12}?(?:吗|么|没)|[^。！!？?，,]{2,12}忘了(?:吗|么|没)|上次(?:说|提|聊|讲|去)的[^。！!？?]{1,12}/;
+
 export function isAboutMe(text) {
-  return (aboutMeQuestion.test(text) && !notAboutMe.test(text)) || howIsIt.test(text);
+  return (aboutMeQuestion.test(text) && !notAboutMe.test(text)) || howIsIt.test(text) || remindQuestion.test(text);
 }
 
 // 问她自己的喜好（「你最喜欢什么零食」「你爱听谁的歌」）：带上她以前对同一问题的回答，前后说法一致。
