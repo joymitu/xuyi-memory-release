@@ -1164,6 +1164,12 @@ test('the guide renders a new QQ QR code even when prior chats and a persona are
   assert.equal(image.src, officialQr);
   assert.equal(Buffer.from(image.src.split(',')[1], 'base64').toString('utf8'), qrSvg);
   assert.doesNotMatch(box.innerHTML, /data-ack/);
+  // 第一次扫只建机器人，要在手机上点「扫码连接」再扫一次才绑上：引导得把两次都说清楚。
+  assert.match(box.innerHTML, /两次/);
+  assert.match(box.innerHTML, /扫码连接/);
+  assert.doesNotMatch(box.innerHTML, /扫完会自己跳到下一步/);
+  load(null).render();
+  assert.match(box.innerHTML, /扫码连接/);
   load({ phase: 'waiting', qrSvg }).render();
   assert.equal(decodeURIComponent(image.src.split(',')[1]), qrSvg);
   assert.equal(load(null).next, 'scan');

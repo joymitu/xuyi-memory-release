@@ -989,6 +989,8 @@ let savingSince = null;
 const INSTALL_SLOW_MS = 90000;
 // 扫码后 QQ 插件存好凭据、DSH 重新加载它，模拟环境里 4 秒内就好；20 秒还没好就是卡住了。
 const SAVING_STUCK_MS = 20000;
+const SCAN_TWICE_HTML = '<p>用<b>手机 QQ</b> 扫<b>两次</b>这个码：</p>'
+  + '<p class="wiz-two">① 第一次扫：照手机上的提示建好机器人<br>② 建好后点手机上的「扫码连接」，再扫一次这个码</p>';
 const INSTALL_SLOW_TEXT = '装得有点久。一般一分钟内就好，超过两三分钟多半是卡住了：'
   + '把 DSH 完全退出（右下角托盘图标也退掉）再打开，回到这里再点一次；'
   + '或者打开左侧「插件」，点「添加插件」，填 @tencent-connect/dsh-qqbot 手动装。';
@@ -1081,13 +1083,14 @@ function renderWizard(force = false) {
     const qrSrc = phase === 'waiting' ? qrImageSource(bindState.qrSvg) : '';
     const qr = qrSrc
       ? '<div class="wiz-qr"><img alt="QQ 机器人绑定二维码">'
-        + '<div><p>用<b>手机 QQ</b> 扫一下，照提示建好机器人。</p><span class="wiz-wait">扫完会自己跳到下一步</span></div></div>'
+        // 第一次扫只是在手机上建机器人，建好后要在手机上点「扫码连接」再扫一次同一个码才绑上（2026-11 Mac 实测）。
+        + '<div>' + SCAN_TWICE_HTML + '<span class="wiz-wait">两次都扫完，会自己跳到下一步</span></div></div>'
       : savingStuck ? `<p class="say bad">${stuckKind === 'saved' ? SAVED_RESTART_TEXT
         : stuckKind === 'not-saved' ? NOT_SAVED_TEXT : SAVING_STUCK_TEXT}</p>`
       : phase === 'saving' ? '<p><span class="wiz-wait">扫码成功，正在连上机器人……</span></p>'
       : phase === 'starting' ? '<p><span class="wiz-wait">二维码马上就好……</span></p>'
       : phase === 'failed' ? `<p class="say bad">二维码没出来（${esc(bindState.reason || '原因不明')}），去 QQ 机器人页面再试一次。</p>`
-      : '<p>去 QQ 机器人页面用手机 QQ 扫码，扫好了回来点「扫好了」。</p>';
+      : '<p>去 QQ 机器人页面用手机 QQ 扫码：第一次扫是建机器人，建好后在手机上点「扫码连接」再扫一次。都扫好了回来点「扫好了」。</p>';
     box.innerHTML = '<div class="wiz-kicker">第 2 步 · 扫码</div><h3>用手机 QQ 扫码，建好你的机器人</h3>' + qr
       + '<div class="wiz-foot"><button class="btn ghost" data-open>打开 QQ 机器人页面</button>'
       + (!phase ? '<button class="btn ghost" data-ack>扫好了</button>' : '') + navButtons + '</div>'
