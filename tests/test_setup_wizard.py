@@ -77,3 +77,40 @@ class PersonaSetupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QqSavedTests(unittest.TestCase):
+    """引导卡在「正在连上机器人」时，分清 QQ 凭据存进 DSH 设置了没有（只看有没有，不读出密钥）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.profile = Path(self.tmp.name)
+
+    def write(self, text):
+        (self.profile / "cordis.patch.yml").write_text(text, encoding="utf-8")
+
+    def test_saved_credentials_give_the_patch_time(self):
+        from xuyi.personas import qq_saved_at
+        self.write(OTHER + "- id: im-qqbot\n  config:\n    appId: \"102999999\"\n    appSecret: fake\n")
+        self.assertAlmostEqual(qq_saved_at(self.profile), (self.profile / "cordis.patch.yml").stat().st_mtime)
+
+    def test_persona_only_or_missing_means_not_saved(self):
+        from xuyi.personas import qq_saved_at
+        self.write(OTHER + "- id: im-qqbot\n  config:\n    directPrompt: hi\n")
+        self.assertIsNone(qq_saved_at(self.profile))
+        self.write(OTHER + "- id: im-qqbot\n  config:\n    appId: \"1\"\n    appSecret: ''\n")
+        self.assertIsNone(qq_saved_at(self.profile))
+        self.write("not: [valid")
+        self.assertIsNone(qq_saved_at(self.profile))
+        (self.profile / "cordis.patch.yml").unlink()
+        self.assertIsNone(qq_saved_at(self.profile))
+        self.assertIsNone(qq_saved_at(None))
+
+    def test_setup_state_reports_it_without_the_secret(self):
+        self.write(OTHER + "- id: im-qqbot\n  config:\n    appId: \"102999999\"\n    appSecret: TOPSECRET\n")
+        db = self.profile / "x.sqlite"
+        out = subprocess.run([sys.executable, "-m", "xuyi", "--db", str(db), "setup-state", "--profile", str(self.profile)],
+                             cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True).stdout
+        self.assertNotIn("TOPSECRET", out)
+        self.assertIsInstance(json.loads(out)["qq_saved_at"], float)

@@ -178,6 +178,29 @@ def persona_status(profile_root):
     return {"configured": True, "name": None, "label": "我写的人设", "preview": body[:80], "group_reply": group}
 
 
+def qq_saved_at(profile_root):
+    """QQ 插件扫码后有没有把机器人信息写进 profile 补丁。
+
+    扫码成功后，QQ 插件先把 appId/appSecret 写进 cordis.patch.yml，再等 DSH 重新加载它才算绑好。
+    引导卡在「正在连上机器人」时，靠这个分清是「存好了、只差 DSH 重新加载」还是「根本没存进去」。
+    写了返回补丁文件的修改时间（秒），没写或读不了返回 None。只看有没有，密钥本身不读出来、不往外传。
+    """
+    try:
+        import yaml
+        patch = Path(profile_root) / "cordis.patch.yml" if profile_root else None
+        if not patch or not patch.is_file():
+            return None
+        entries = yaml.safe_load(patch.read_text(encoding="utf-8"))
+        saved_at = patch.stat().st_mtime
+    except Exception:
+        return None
+    for entry in entries if isinstance(entries, list) else []:
+        config = entry.get("config") if isinstance(entry, dict) and entry.get("id") == "im-qqbot" else None
+        if isinstance(config, dict) and str(config.get("appId") or "").strip() and str(config.get("appSecret") or "").strip():
+            return saved_at
+    return None
+
+
 def group_reply_status(profile_root):
     """宿主现在群里怎么回：mention（只在 @ 时，宿主默认）/ all（每条都回）。读不到按宿主默认。"""
     try:

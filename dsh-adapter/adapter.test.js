@@ -1223,13 +1223,36 @@ test('the guide says the scan worked and, if the QQ plugin never connects, how t
   draw();
   assert.match(box.innerHTML, /扫码成功，正在连上机器人/);
   assert.doesNotMatch(box.innerHTML, /二维码马上就好|完全退出/);
-  now += 30000;
+  now += 15000;
   draw();
-  assert.doesNotMatch(box.innerHTML, /完全退出/, '半分钟内还算正常，不催');
-  now += 20000;
+  assert.doesNotMatch(box.innerHTML, /完全退出/, '十几秒内还算正常，不催');
+  now += 10000;
   draw();
   assert.match(box.innerHTML, /扫码成功了，但 QQ 插件一直没连上机器人/);
   assert.match(box.innerHTML, /完全退出.*托盘.*再打开.*重新扫一次/);
+  // 知道 DSH 设置里存没存进机器人信息时，分两种说。
+  const stuckWith = (savedAt, startedAt = 1000) => {
+    now = startedAt;
+    const store = {};
+    const session = { getItem: key => store[key] ?? null, setItem: (key, value) => { store[key] = value; } };
+    const drawIt = render({ qq: { installed: true }, persona: { configured: false }, qq_saved_at: savedAt },
+      { phase: 'saving' }, document, session, () => {}, clock);
+    drawIt();
+    now += 25000;
+    drawIt();
+    return { html: box.innerHTML, store };
+  };
+  const fresh1 = stuckWith(1000 / 1000);
+  assert.match(fresh1.html, /机器人信息也存好了.*完全退出.*托盘.*再打开.*不用重新扫码/);
+  assert.match(stuckWith(null).html, /没能把机器人信息存进 DSH 的设置.*重新扫一次/);
+  // 很久以前绑过的旧机器人不算这次存进去的。
+  assert.match(stuckWith(1, 7200000).html, /没能把机器人信息存进/);
+  // 切去扫码再回来（页面重新加载），接着原来的时间算，不从头等。
+  const back = { getItem: () => String(now - 25000), setItem: () => {} };
+  const again = render({ qq: { installed: true }, persona: { configured: false }, qq_saved_at: null },
+    { phase: 'saving' }, document, back, () => {}, clock);
+  again();
+  assert.match(box.innerHTML, /没能把机器人信息存进/);
   const fresh = render({ qq: { installed: true } }, { phase: 'starting' }, document, { getItem: () => null }, () => {}, clock);
   fresh();
   assert.match(box.innerHTML, /二维码马上就好/);

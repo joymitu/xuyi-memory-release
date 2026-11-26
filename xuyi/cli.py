@@ -169,14 +169,16 @@ def main():
                 from .personas import list_personas, persona_status
                 from .board_bridge import DIARY_HOURS, diary_hour
                 from .carry import health
-                from .personas import list_own, keep_current_own
+                from .personas import list_own, keep_current_own, qq_saved_at
                 status=persona_status(args.profile)
                 # 现在用着自己写的人设：先存进「我写的人设」，页面上标「正在用」，以后换走也不丢。
                 status['own_id']=keep_current_own(store,args.profile)
                 result={'persona':status,'presets':list_personas(include_prompt=True),
                         'own':list_own(store),
                         'diary_hour':diary_hour(args.db),'diary_hours':list(DIARY_HOURS),
-                        'health':health(store)}
+                        'health':health(store),
+                        # 引导卡在「正在连上机器人」时分情况提示：QQ 凭据存进 DSH 设置了没有（只给时间，不给内容）
+                        'qq_saved_at':qq_saved_at(args.profile)}
             elif args.command=='diary-due':
                 try:
                     from .strength import rebuild as rebuild_strength
